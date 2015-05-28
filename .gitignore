@@ -36,6 +36,6 @@
 
 # directory
 
-**/Debug
-**/Release
+*/Debug
+*/Release
 
