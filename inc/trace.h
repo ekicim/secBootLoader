@@ -19,12 +19,12 @@ extern void Trace( char* msg );
 
 /*****************************************************************************
 ** Function name:	TraceEndl
-** Description:		Prints a trace message appending new line
+** Description:		Prints a trace message appending new line at the end
 **
 ** Parameters:		null terminated string to print
 ** Returned value:	none
 ******************************************************************************/
-extern void TraceEndl( char* msg );
+extern void TraceNL( char* msg );
 
 /*****************************************************************************
 ** Function name:	TracePutc

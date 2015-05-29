@@ -59,7 +59,7 @@ void UART3_IRQHandler( void );
 void UARTSend( uint32_t portNum, uint8_t *BufferPtr, uint32_t Length );
 uint8_t Usart_Oku(uint8_t *veri, uint8_t PortNum);
 uint8_t ReadGPSByPolling(uint8_t *veri, int timeout);
-uint8_t ReadUart(uint8_t *veri, uint8_t PortNum);
+uint16_t ReadUart(uint8_t *veri, uint8_t PortNum);
 
 #endif /* end __UART_H */
 /*****************************************************************************

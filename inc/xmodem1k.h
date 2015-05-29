@@ -26,6 +26,7 @@
 #include <stdint.h>
 
 void vXmodem1k_Client(uint32_t (*pu32Xmodem1kRxPacketCallback)(uint8_t *pu8Data, uint16_t u16Len));
+void XModem1K_Client(uint32_t (*pu32Xmodem1kRxPacketCallback)(uint8_t *pu8Data, uint16_t u16Len));
 
 #endif /* end __XMODEM1K_H */
 /*****************************************************************************

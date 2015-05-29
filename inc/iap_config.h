@@ -34,7 +34,8 @@
 
 #define MAX_SECTORS					29
 
-
+// 1024 bytes before PRIMARY image start
+#define UPGRADE_PARAMETERS_ADDR		( PRIMARY_IMAGE_LOAD_ADDR - 1024 )
 
 #define FLASH_BUF_SIZE		512
 #define USER_FLASH_START	(sector_start_map[USER_START_SECTOR])

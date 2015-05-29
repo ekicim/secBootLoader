@@ -9,7 +9,7 @@ void Trace( char* msg)
 	UARTSend(PORT_TRACE, (unsigned char*)msg, strlen(msg));
 }
 
-void TraceEndl( char* msg)
+void TraceNL( char* msg)
 {
 	UARTSend(PORT_TRACE, (unsigned char*)msg, strlen(msg));
 	UARTSend(PORT_TRACE, (unsigned char*)"\r", 1);

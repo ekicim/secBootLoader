@@ -4,33 +4,54 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
+../src/Calibration.c \
+../src/GPS.c \
+../src/GSM.c \
+../src/Utils.c \
 ../src/cr_startup_lpc175x_6x.c \
 ../src/crc.c \
 ../src/crp.c \
+../src/exp_i2c.c \
 ../src/iap.c \
 ../src/sec_bootloader.c \
+../src/timer.c \
 ../src/trace.c \
 ../src/uart.c \
+../src/wdt.c \
 ../src/xmodem1k.c 
 
 OBJS += \
+./src/Calibration.o \
+./src/GPS.o \
+./src/GSM.o \
+./src/Utils.o \
 ./src/cr_startup_lpc175x_6x.o \
 ./src/crc.o \
 ./src/crp.o \
+./src/exp_i2c.o \
 ./src/iap.o \
 ./src/sec_bootloader.o \
+./src/timer.o \
 ./src/trace.o \
 ./src/uart.o \
+./src/wdt.o \
 ./src/xmodem1k.o 
 
 C_DEPS += \
+./src/Calibration.d \
+./src/GPS.d \
+./src/GSM.d \
+./src/Utils.d \
 ./src/cr_startup_lpc175x_6x.d \
 ./src/crc.d \
 ./src/crp.d \
+./src/exp_i2c.d \
 ./src/iap.d \
 ./src/sec_bootloader.d \
+./src/timer.d \
 ./src/trace.d \
 ./src/uart.d \
+./src/wdt.d \
 ./src/xmodem1k.d 
 
 

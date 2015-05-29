@@ -522,7 +522,8 @@ void UARTSend(uint32_t portNum, uint8_t *buffer, uint32_t Length) {
 	return;
 }
 
-uint8_t ReadUart(uint8_t *veri, uint8_t PortNum) {
+uint16_t ReadUart( uint8_t *veri, uint8_t PortNum )
+{
 	uint8_t *veri_ptr = veri;
 	uint16_t buff_count = 0;
 	if (PortNum == 0) {
@@ -533,9 +534,9 @@ uint8_t ReadUart(uint8_t *veri, uint8_t PortNum) {
 				veri_ptr++;
 			}
 			*veri_ptr = '\0';
-			int len = UART0Count;
+			uint16_t len = UART0Count;
 			UART0Count = 0;
-			return len;
+			return ( len );
 		}
 	}
 	if (PortNum == 1) {
@@ -546,9 +547,9 @@ uint8_t ReadUart(uint8_t *veri, uint8_t PortNum) {
 				veri_ptr++;
 			}
 			*veri_ptr = '\0';
-			int len = UART1Count;
+			uint16_t len = UART1Count;
 			UART1Count = 0;
-			return len;
+			return ( len );
 		}
 	}//GPS Port
 	else if (PortNum == 2) {
