@@ -14,6 +14,9 @@ char per_apn_val[30];
 char per_apnuser_val[20];
 char per_apnpass_val[20];
 char per_ip_val[40];
+extern char static_update_server_ip[];
+extern char static_update_server_port[];
+
 int per_port_val;
 uint64_t per_mileage_val;
 //Persistant Variables

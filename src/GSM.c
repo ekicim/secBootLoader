@@ -7,9 +7,13 @@
 
 
 #include "GSM.h"
+#include "uart.h"
 #include "Utils.h"
 #include "Calibration.h"
 #include "LPC17xx.h"
+
+#include "trace.h"
+#include "wdt.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -23,18 +27,36 @@ int connectionFailCount = 0;
 
 uint16_t GSM_SendAt( char* cmd, char *response, int delay )
 {
-	char buffer[200];
+
+//	char buffer[1000];
+//	int count = sprintf(buffer, "%s\r", cmd);
+//	UARTSend(PORT_GSM, buffer, count);
+//	DelayMs(delay);
+//	int len2 = ReadUart(response, PORT_GSM);
+//
+//	count = sprintf(buffer, "\n--> %s \n", cmd);
+//	UARTSend(PORT_TRACE, buffer, count);
+//	//Trace(buffer);
+//	/*if (len2 > 0 && strstr(response, "+QI") != NULL) {
+//				TraceNL("+QIRD Incoming Data");
+//				GSM_SendAt("AT+QIRD=1",response,500);
+//	}*/
+
+	char buffer[1000];
 	uint16_t	len;
 
-	int count = sprintf(buffer, "%s\r", cmd);
-	UARTSend(PORT_GSM, buffer, count);
+	sprintf( buffer, "---> %s\r\n", cmd );
+	TraceDumpHex( buffer, strlen( buffer ) );
 
-	DelayMs(delay);
+	int count = sprintf( buffer, "%s\r\n", cmd );
+	UARTSend( PORT_GSM, buffer, count );
 
-	len = ReadUart(response, PORT_GSM);
+	DelayMs( delay );
 
-	sprintf(buffer, "%s Response : %s \r", cmd, response);
-	TraceNL(buffer);
+	len = ReadUart( response, PORT_GSM );
+	response[len] = '\0';
+
+	TraceDumpHex( response, len );
 
     return ( len );
 }
@@ -43,9 +65,9 @@ uint16_t GSM_SendAt( char* cmd, char *response, int delay )
 
 int16_t GSM_TCP_Recv( char* pDataBuf, int16_t maxBytes )
 {
-	Trace("Entered GSM_TCP_Recv");
+	Trace( "Entered GSM_TCP_Recv" );
 
-	return ( GSM_SendAt( "AT+QIRD=1,1,0,1050", pDataBuf, 500 ) );
+	return ( GSM_SendAt( "AT+QIRD=1,1,0,200", pDataBuf, 1000 ) );
 }
 
 void GSM_CheckBuffer() {
@@ -125,6 +147,24 @@ int GSM_ConnectToTrioUpgradeServer(char *ip, char *port)
 
 	TraceNL("Entered GSM_ConnectToTrioUpgradeServer");
 
+	int init_result = GSM_InitModule();
+	if (init_result == FAIL){
+		GSM_ShutdownModule();
+		DelayMs(2000);
+		init_result = GSM_InitModule();
+	}
+
+	WDTFeed();
+
+	if(init_result == FAIL)
+		return ( init_result );
+
+	GSM_EchoOFF();
+	GSM_GetImei();
+	GSM_GetImsi(); //
+	int conn_stat = GSM_GetRegStat();
+
+	WDTFeed();
 	GSM_SendAt("AT+QIFGCNT=1", response, 500);
 
 	memset(buffer, 0, sizeof(buffer));
@@ -135,43 +175,60 @@ int GSM_ConnectToTrioUpgradeServer(char *ip, char *port)
 	GSM_SendAt("AT+QVBATT=0,3500,0", response, 100); //Disable low power shut down and warning.
 	GSM_SendAt("AT+QVBATT=1,3300,0",response,100); // Disable 3.3 volt cutoff.
 
-	//SendAt("AT+QIMODE=1",response); //Transparent Mode
-	GSM_SendAt("AT+QIMODE=0", response, 100); //Non Transparent Mode
-	GSM_SendAt("AT+QINDI=1", response, 100); //Alert when data received.
+	GSM_SendAt("AT+QISHOWRA=1", response, 100); // show remote address
+	GSM_SendAt("AT+QISHOWPT=1", response, 100); // show protocol type ,TCP, or UDP
+	GSM_SendAt("AT+QINDI=0", response, 100);    //  disable indicator
+	GSM_SendAt("AT+QIHEAD=1", response, 100);    //
+
+	//GSM_SendAt("AT+QIMODE=1", response, 100); //Transparent Mode
+	GSM_SendAt("AT+QIMODE=0", response, 100);   //Non Transparent Mode
+	//GSM_SendAt("AT+QINDI=1", response, 100);  //Alert when data received.
+
 
 	//GSM_SendAt("AT+QITCFG=3,1,512,1", response, 500); //Transparent mode configuration
 
 	memset(buffer, 0, sizeof(buffer));
 	if (isalpha(per_ip_val[0])){ //DNS
 		GSM_SendAt("AT+QIDNSIP=1", response, 100);
+		TraceDumpHex( response, strlen(response) );
 	}else
 		GSM_SendAt("AT+QIDNSIP=0", response, 100);
 
+
 	////Low Power/////
 	GSM_SendAt("AT+QGPCLASS=8", response, 100); // 1 Tx timeslots
+//	TraceDumpHex( response, strlen(response) );
 	//GSM_SendAt("AT+CDETXPW=900,1,255,2", response, 100);
 	//////////////////
 	GSM_SendAt("AT",response,100);
 
-	int cmd_count = sprintf(buffer, "AT+QIOPEN=\"TCP\",\"%s\",%d\r", per_ip_val, per_port_val);
+	int cmd_count = sprintf(buffer, "AT+QIOPEN=\"TCP\",\"%s\",%d", static_update_server_ip, 5007L);
 	//GSM_SendAt("AT+QIOPEN=\"TCP\",\"178.63.30.80\",6081", response, 2000);
 
-	UARTSend(PORT_GSM, buffer, cmd_count);
-	UARTSend(PORT_TRACE, buffer, cmd_count);
+	GSM_SendAt( buffer, response, 100);
+	//UARTSend(PORT_GSM, buffer, cmd_count);
+
+	//UARTSend(PORT_TRACE, buffer, cmd_count);
 	int server_conn_count = 0;
 	int server_conn_result = FAIL;
 
 	while(1){
-		ReadUart(response, PORT_GSM);
-		if (strstr(response,"FAIL") != NULL/* || strstr(response,"ERROR") != NULL*/){ //ERROR is about format ignore
-			//UARTSend(PORT_GSM, buffer, cmd_count); //Testing AT to server problem
-			break;
+		int recLen = ReadUart(response, PORT_GSM);
+		if( recLen )
+		{
+//			TraceDumpHex( response, strlen(response) );
+			if (strstr(response,"FAIL") != NULL/* || strstr(response,"ERROR") != NULL*/){ //ERROR is about format ignore
+				//UARTSend(PORT_GSM, buffer, cmd_count); //Testing AT to server problem
+				break;
+			}
+			else if (strstr(response,"CONNECT OK") != NULL || strstr(response,"ALREADY CONNECT") != NULL){
+				//UARTSend( PORT_TRACE, response, cmd_count );
+				TraceDumpHex( response, recLen );
+				server_conn_result = SUCCESS;
+				break;
+			}
 		}
-		else if (strstr(response,"CONNECT OK") != NULL || strstr(response,"ALREADY CONNECT") != NULL){
-			UARTSend(PORT_TRACE, response, cmd_count);
-			server_conn_result = SUCCESS;
-			break;
-		}
+
 		WDTFeed();
 		DelayMs(300);
 		server_conn_count++;
@@ -201,6 +258,128 @@ int GSM_ConnectToTrioUpgradeServer(char *ip, char *port)
 	return FAIL;
 }
 
+
+
+
+int GSM_ConnectToTrioUpgradeServerTransparent(char *ip, char *port)
+{
+	char buffer[200];
+	char response[150];
+
+	TraceNL("Entered GSM_ConnectToTrioUpgradeServerTransparent");
+
+	int init_result = GSM_InitModule();
+	if (init_result == FAIL){
+		GSM_ShutdownModule();
+		DelayMs(2000);
+		init_result = GSM_InitModule();
+	}
+
+	WDTFeed();
+
+	if(init_result == FAIL)
+		return ( init_result );
+
+	GSM_EchoOFF();
+	GSM_GetImei();
+	GSM_GetImsi(); //
+	int conn_stat = GSM_GetRegStat();
+
+	WDTFeed();
+	GSM_SendAt("AT+QIFGCNT=1", response, 500);
+
+	memset(buffer, 0, sizeof(buffer));
+	sprintf(buffer, "AT+QICSGP=1,\"%s\",\"%s\",\"%s\"", per_apn_val, per_apnuser_val, per_apnpass_val);
+
+	GSM_SendAt(buffer, response, 100);
+	GSM_SendAt("AT+QIMUX=0", response, 100);
+	GSM_SendAt("AT+QVBATT=0,3500,0", response, 100); //Disable low power shut down and warning.
+	GSM_SendAt("AT+QVBATT=1,3300,0",response,100); // Disable 3.3 volt cutoff.
+
+
+	GSM_SendAt("AT+QISHOWRA=1", response, 100); // show remote address
+	GSM_SendAt("AT+QISHOWPT=1", response, 100); // show protocol type ,TCP, or UDP
+	GSM_SendAt("AT+QINDI=0", response, 100);   //  disable indicator
+
+	//GSM_SendAt("AT+QIMODE=1", response, 100); // Transparent Mode
+	GSM_SendAt("AT+QIMODE=0", response, 100); //Non Transparent Mode
+	//GSM_SendAt("AT+QINDI=1", response, 100); //Alert when data received.
+
+
+	GSM_SendAt("AT+QITCFG=3,1,10,1", response, 500); //Transparent mode configuration
+
+	memset(buffer, 0, sizeof(buffer));
+	if (isalpha(per_ip_val[0])){ //DNS
+		GSM_SendAt("AT+QIDNSIP=1", response, 100);
+		TraceDumpHex( response, strlen(response) );
+	}else
+		GSM_SendAt("AT+QIDNSIP=0", response, 100);
+
+
+	////Low Power/////
+	GSM_SendAt("AT+QGPCLASS=8", response, 100); // 1 Tx timeslots
+//	TraceDumpHex( response, strlen(response) );
+	//GSM_SendAt("AT+CDETXPW=900,1,255,2", response, 100);
+	//////////////////
+	GSM_SendAt("AT",response,100);
+
+	int cmd_count = sprintf(buffer, "AT+QIOPEN=\"TCP\",\"%s\",%d\r", static_update_server_ip, 5007L);
+	//GSM_SendAt("AT+QIOPEN=\"TCP\",\"178.63.30.80\",6081", response, 2000);
+
+	GSM_SendAt( buffer, response, 100);
+	//UARTSend(PORT_GSM, buffer, cmd_count);
+
+	//UARTSend(PORT_TRACE, buffer, cmd_count);
+
+	return SUCCESS;
+//	int server_conn_count = 0;
+//	int server_conn_result = FAIL;
+//
+//	while(1){
+//		int recLen = ReadUart(response, PORT_GSM);
+//		if( recLen )
+//		{
+////			TraceDumpHex( response, strlen(response) );
+//			if (strstr(response,"FAIL") != NULL/* || strstr(response,"ERROR") != NULL*/){ //ERROR is about format ignore
+//				//UARTSend(PORT_GSM, buffer, cmd_count); //Testing AT to server problem
+//				break;
+//			}
+//			else if (strstr(response,"CONNECT OK") != NULL || strstr(response,"ALREADY CONNECT") != NULL){
+//				UARTSend( PORT_TRACE, response, cmd_count );
+//				TraceDumpHex( response, recLen );
+//				server_conn_result = SUCCESS;
+//				break;
+//			}
+//		}
+//
+//		WDTFeed();
+//		DelayMs(300);
+//		server_conn_count++;
+//		if (server_conn_count > 30)
+//			break;
+//	}
+//
+//	//GSM_SendAt(buffer, response, 2000);
+//	if (server_conn_result == SUCCESS) {
+//		TraceNL("Connected to the server.");
+//		connectionFailCount = 0;
+//		return SUCCESS;
+//	}
+//
+//	TraceNL("QIOPEN failed.");
+//	connectionFailCount++;
+//	if (connectionFailCount > 40 && connectionFailCount % 200 == 0) //10 minutes.
+//	{
+//		TraceNL("Hard resetting module.");
+//		GSM_InitModule(); //Restarts and initializes module.
+//		last_hard_reset = STT_Value;
+//	}
+//	else if (connectionFailCount > 30 && connectionFailCount % 20 == 0){ //100 in production
+//		TraceNL("connectionFailCount > 40 restarting module.");
+//		GSM_InitModule(); //Restarts and initializes module.
+//	}
+	return FAIL;
+}
 /*****************************************************************************
 ** Function name:	GSM_TCP_Connect
 ** Description:		Function connects to a server over TCP
@@ -328,6 +507,44 @@ int GSM_SendToServerTCP(char* msg) {
 	return FAIL;
 }
 
+
+
+// Test message is sent using ST message
+int GSM_SendToServerTCPTestST(char* msg) {
+	TraceNL("Entered GSM_SendToServerTCP");
+	char response[500];
+	char buffer[500];
+	char anotherBuf[500];
+	sprintf(anotherBuf, "[ST;%s70;r2246;P65-20570204-1;%s;%s]", imei, imsi, msg);
+	GSM_SendAt("AT", response, 100); //Empty buffer
+	int count = sprintf(buffer, "AT+QISEND=%d", strlen(anotherBuf));
+	GSM_SendAt(buffer, response, 100);
+	//GSM_SendAt("AT+QISEND", response, 100);
+	if (strchr(response, '>') != NULL) {
+
+		UARTSend(PORT_GSM, anotherBuf, strlen(anotherBuf));
+		DelayMs(300);
+		ReadUart(response, PORT_GSM);
+		int sendOkCheck = 0;
+		while (strstr(response,"SEND OK") == NULL){
+			TraceDumpHex( response );
+			if (sendOkCheck > 20)
+				return FAIL;
+			DelayMs(100);
+			ReadUart(response, PORT_GSM);
+			sendOkCheck++;
+		}
+		TraceNL("Data sent.");
+		return SUCCESS;
+	}
+	else if (strstr(response, "ERROR") != NULL) {
+		TraceNL("Data fail.");
+		return FAIL;
+	}
+	TraceNL("Data fail.");
+	return FAIL;
+}
+
 /*****************************************************************************
 ** Function name:	GSM_TCP_Send
 ** Description:		Function sends the given buffer over a already connected
@@ -341,7 +558,7 @@ int GSM_SendToServerTCP(char* msg) {
 **
 **                  a value less than 0 is error code, tobe defined later.
 ******************************************************************************/
-int GSM_TCP_Send( char* msg, uint16_t len )
+int GSM_TCP_Send( unsigned char* msg, uint16_t len )
 {
 	char response[200];
 	char buffer[200];
@@ -414,16 +631,21 @@ int GSM_InitModule() {
 	DelayMs(1000);
 	GSM_TogglePwrKey();
 	int i = 0;
-	for (i = 0; i < 10; i++) {
+	for (i = 0; i < 20; i++) {
 		GSM_SendAt("AT", response, 500);
+
+//		TraceDumpHex( response, strlen(response) );
 		if (strstr(response, "OK") != NULL) {
 			GSM_SendAt("AT+CMEE=2", response, 500);
+//			TraceDumpHex( response, strlen(response) );
 			DelayMs(500);
 			//Init SMS
 			//SMS Text Mode
 			GSM_SendAt("AT+CMGF=1", response, 500);
+//			TraceDumpHex( response, strlen(response) );
 			//Initialize SMS, if not new messages does not cause +CMTI
 			GSM_SendAt("AT+CNMI=2,1,0,0,0", response, 500);
+//			TraceDumpHex( response, strlen(response) );
 			int sim_check = FAIL;
 			for(;i<40;i++){
 				sim_check = GSM_CheckSimCard();
@@ -534,4 +756,28 @@ void GSM_GetImsi() {
 	}
 	imsi[index - 1] = '\0';
 	TraceNL(imsi);
+}
+
+
+void GSM_EchoOn( )
+{
+	char response[100];
+	GSM_SendAt("ATE1", response, 500);
+	TraceNL("ECHO ON");
+}
+
+
+void GSM_EchoOFF( )
+{
+	char response[100];
+	GSM_SendAt("ATE0", response, 500);
+	TraceNL("ECHO OFF");
+}
+
+void GSM_TCP_Close( void )
+{
+	char response[200];
+	GSM_SendAt("AT+QICLOSE", response, 500);
+	TraceNL("CLOSE TCP connection ");
+
 }

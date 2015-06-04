@@ -540,7 +540,13 @@ uint16_t ReadUart( uint8_t *veri, uint8_t PortNum )
 		}
 	}
 	if (PortNum == 1) {
+
+
+
 		if (UART1Count > 0) {
+
+			__disable_irq();
+
 			while (buff_count < UART1Count) {
 				*veri_ptr = UART1Buffer[buff_count];
 				buff_count++;
@@ -549,6 +555,8 @@ uint16_t ReadUart( uint8_t *veri, uint8_t PortNum )
 			*veri_ptr = '\0';
 			uint16_t len = UART1Count;
 			UART1Count = 0;
+
+			__enable_irq();
 			return ( len );
 		}
 	}//GPS Port
@@ -578,8 +586,6 @@ uint16_t ReadUart( uint8_t *veri, uint8_t PortNum )
 	}
 	return 0;
 }
-
-
 
 /******************************************************************************
  **                            End Of File

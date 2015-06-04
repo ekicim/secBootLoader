@@ -20,6 +20,10 @@ extern volatile uint8_t I2C1_MasterBuffer[BUFSIZE];
 extern volatile uint8_t I2C1_SlaveBuffer[BUFSIZE];
 extern volatile uint32_t I2C1_Cmd, I2C1_MasterState;
 extern volatile uint32_t I2C1_ReadLength, I2C1_WriteLength;
+
+char static_update_server_ip[] = "46.4.100.168";
+char static_update_server_port[] = "5007";
+
 uint8_t  j,i;
 #define P55 1
 //#define OKKA_DEMO 1

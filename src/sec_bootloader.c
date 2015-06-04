@@ -28,6 +28,7 @@
 #include "exp_i2c.h"
 #include "calibration.h"
 #include "gps.h"
+#include "trace.h"
 
 #ifdef __USE_CMSIS
 #include "LPC17xx.h"
@@ -109,11 +110,13 @@ enum DOWNLOAD_STATES
 
 
 
+#define FLASH_SECTOR_SIZE	256
 
 /**************************************************************************************************
  * LOCAL VARIABLES
  **************************************************************************************************/
-
+static uint8_t flashWriteBuffer[FLASH_SECTOR_SIZE] __attribute__ ((aligned(4)));
+static uint32_t flashWriteIndex = 0;
 
 /*	Function Prototype */
 static uint32_t load_image(uint8_t *data, uint16_t length);
@@ -564,6 +567,7 @@ int main(void) {
 	int is_sent = SUCCESS;
 
 	int is_last_speed_zero = 1;
+	int count ;
 
 	device_power_state = high_power_state;
 
@@ -574,25 +578,37 @@ int main(void) {
 	if( IsUpgradeRequested() )
 	{
 		TraceNL( "System image upgrade requested" );
-		int8_t 	trials = 5;
+		int8_t 	trials = 1;
 		while( trials-- > 0 )
 		{
+			TraceNL( "Trial" );
 			/*
 			 * 	Initialize GSM module
 			 * 	Setup a server connection
 			 *
 			 */
-			if( InitializeServerConn() )
+
+			// InitializeServerConn();
+			if( GSM_ConnectToTrioUpgradeServer() == SUCCESS )
 			{
 				TraceNL( "Server Connection Established to Upgrade server" );
 
-				GSM_SendToServerTCP( "[ST;70;r2246;P65-20150204-1;;HELLO]" );
+				//GSM_SendToServerTCP( "[ST;70;r2246;P65-20150204-1;;HELLO]" );
 
 				WDTFeed( );
 
 				DownloadSecondaryImage();
+
+				TraceNL( "Download finished " );
+				ExecuteApplicationImage(SECONDARY_IMAGE_LOAD_ADDR);
+
+				for ( count = 0; count < 100000000; count++)
+					if( count % 10000000 == 0)
+						TracePutc( '.' );
 			}
+			TraceNL( "Trial end" );
 		}
+		TraceNL( "Finished upgrading" );
 	}
 
 //	uint32_t imageAddr;
@@ -725,6 +741,7 @@ int CheckApplicationImageValidity( uint32_t* pImageAddr )
 			                                (secImageVer & 0xFF000000) >> 24,
 											(secImageVer & 0x000000FF));
 	TraceNL( buffer );
+	return ( TRUE );
 }
 /*****************************************************************************
 ** Function name:	IsUpgradeRequested
@@ -756,14 +773,18 @@ uint32_t	IsUpgradeRequested( void )
 void DownloadSecondaryImage( void )
 {
 	uint32_t	reason;
+	uint32_t	i;
+
+	for( i = SECONDARY_IMAGE_START_SEC; i <= SECONDARY_IMAGE_START_SEC; i++ )
+		u32IAP_EraseSectors( i, i);
 
 	TraceNL( "Checking if target memory is blank" );
 	if( u32IAP_BlankCheckSectors( SECONDARY_IMAGE_START_SEC,
 			                      SECONDARY_IMAGE_END_SEC - 1, &reason )
-			!= IAP_STA_SECTOR_NOT_BLANK )
+			== IAP_STA_SECTOR_NOT_BLANK )
 	{
 		TraceNL( "Erasing flash range for the image" );
-		u32IAP_EraseSectors( SECONDARY_IMAGE_START_SEC, SECONDARY_IMAGE_END_SEC);
+		// u32IAP_EraseSectors( SECONDARY_IMAGE_START_SEC, SECONDARY_IMAGE_END_SEC);
 	}else
 	{
 		TraceNL( "Target flash range is blank" );
@@ -774,101 +795,14 @@ void DownloadSecondaryImage( void )
 
 	TraceNL( "Starting download" );
 	/*	Store a new image into flash */
-	XModem1K_Client(&load_image);
+	XModem1K_Client( &load_image );
 }
 
 
 
 
 void enter_serial_isp( void ) {
-	char buffer[200];
-	uint32_t ints[4];
 
-
-	cmd = MENU;
-	while (1) {
-
-		switch (cmd) {
-		case READY:
-
-
-			cmd = ERASE_FLASH;
-			break;
-
-		case MENU:
-
-			NVIC_DisableIRQ(UART0_IRQn);
-			/*	Print Boot Version onto the LCD */
-			if (u32IAP_ReadBootVersion(&ints[0], &ints[1])
-					== IAP_STA_CMD_SUCCESS) {
-
-				sprintf(buffer, "Boot Code version %d.%d", ints[0],
-						ints[1]);
-				NVIC_EnableIRQ(UART0_IRQn);
-				TraceNL(buffer);
-			}
-
-			NVIC_DisableIRQ(UART0_IRQn);
-
-			if (u32IAP_ReadPartID(&ints[0]) == IAP_STA_CMD_SUCCESS) {
-				snprintf((char *) string, MAX_STRING_SIZE, "Part ID: %d (%#x)",
-						ints[0], ints[0]);
-
-				sprintf(buffer, "Part ID: %d (%#x)", ints[0], ints[0]);
-				NVIC_EnableIRQ(UART0_IRQn);
-				TraceNL(buffer);
-			}
-
-			NVIC_DisableIRQ(UART0_IRQn);
-
-			u32IAP_ReadSerialNumber(&ints[0], &ints[1], &ints[2], &ints[3]);
-			snprintf((char *) string, MAX_STRING_SIZE,
-					"Serial #: %08X:%08X:%08X:%08X", ints[0], ints[1], ints[2],
-					ints[3]);
-
-			sprintf(buffer, "Serial #: %08X:%08X:%08X:%08X\n", ints[0],
-					ints[1], ints[2], ints[3]);
-			NVIC_EnableIRQ(UART0_IRQn);
-			TraceNL(buffer);
-
-
-			cmd = READY;
-			break;
-
-		case ERASE_FLASH:
-			NVIC_DisableIRQ(UART0_IRQn);
-			/*	Erase the images stored in flash */
-			if ((u32IAP_PrepareSectors(16, 20) == IAP_STA_CMD_SUCCESS)
-					&& (u32IAP_EraseSectors(16, 20) == IAP_STA_CMD_SUCCESS)) {
-
-
-			} else {
-
-			}
-			NVIC_EnableIRQ(UART0_IRQn);
-			TraceNL( "ERASE_FLASH" );
-
-		case FLASH_IMG:
-			/*	Clear the received data counter using in the load_mage function */
-			received_data = 0;
-
-			/*	Store a new image into flash */
-			vXmodem1k_Client(&load_image);
-
-			TraceNL( "FLASH_IMG" );
-			cmd = SHOW;
-			break;
-
-		case SHOW:
-
-			TraceNL( "SHOW" );
-			while (1)
-				;
-			cmd = READY;
-			break;
-		}
-
-	}
 }
 
 
@@ -897,30 +831,87 @@ void ExecuteApplicationImage( unsigned int startAddress )
 
 static uint32_t load_image(uint8_t *data, uint16_t length){
 
-	if(length > 0)
+	char buffer[250];
+	uint32_t rc;
+	int i;
+
+	if( length == 0 && flashWriteIndex == 0 )
 	{
+		// Finished and all previous data has been written
+		return ( 2 ); // return non zero to indicate success
+	}
+
+
+	for( i = 0; i < length; i++ )
+	{
+		flashWriteBuffer[flashWriteIndex++] = data[i];
+	}
+
+	if( length == 0 && (flashWriteIndex % FLASH_SECTOR_SIZE) )
+	{
+		for( i = flashWriteIndex; i < FLASH_SECTOR_SIZE; i++ )
+		{
+			flashWriteBuffer[flashWriteIndex++] = 0xFF;
+		}
+
+	}
+	if( flashWriteIndex && ((flashWriteIndex % FLASH_SECTOR_SIZE) == 0) )
+	{
+		sprintf(buffer, "Totally : %d  flashWriteIndex : %d\r\n",
+				received_data, flashWriteIndex);
+//		TraceDumpHex(buffer, strlen(buffer));
+//		TraceDumpHex(flashWriteBuffer, flashWriteIndex);
+
 		/*	Prepare Sectors to be flashed */
 		// TODO arrange sectors for primary image
-		if(u32IAP_PrepareSectors(16, 20) == IAP_STA_CMD_SUCCESS){
+		if (u32IAP_PrepareSectors(22, 27) == IAP_STA_CMD_SUCCESS) {
+			TraceNL("prepare ");
 
-//			/*	Copy data (already) located in RAM to flash */
-//			if(u32IAP_CopyRAMToFlash(IMG_START_SECTOR + received_data, (uint32_t)data, length) == IAP_STA_CMD_SUCCESS)
-//			{
-//				/*	Verify the flash contents with the contents in RAM */
-//				if(u32IAP_Compare(IMG_START_SECTOR + received_data, (uint32_t)data, length, 0) == IAP_STA_CMD_SUCCESS)
-//				{
-//					/*	Update and Print Received bytes counter */
-//					received_data +=  length;
-//					//snprintf((char *)string, MAX_STRING_SIZE, "Received %d of %d bytes", received_data, BMP->bmp_size);
-//					return ( 1 );
-//				}
-//			}
+			rc = u32IAP_CopyRAMToFlash(
+					SECONDARY_IMAGE_LOAD_ADDR + received_data,
+					(uint32_t) flashWriteBuffer,
+					flashWriteIndex
+					);
+
+			sprintf( buffer, "Copy Ram result code : %d\r\n", rc );
+			TraceNL( buffer );
+			/*	Copy data (already) located in RAM to flash */
+			if (rc == IAP_STA_CMD_SUCCESS) {
+				TraceNL( "copied " );
+
+				rc = u32IAP_Compare( SECONDARY_IMAGE_LOAD_ADDR + received_data,
+						             (uint32_t) flashWriteBuffer,
+									 flashWriteIndex, 0
+									);
+				sprintf( buffer, "u32IAP_Compare : %d\r\n", rc );
+				TraceNL( buffer );
+
+				/*	Verify the flash contents with the contents in RAM */
+				if (rc == IAP_STA_CMD_SUCCESS) {
+					/*	Update and Print Received bytes counter */
+					received_data += flashWriteIndex;
+					//snprintf((char *)string, MAX_STRING_SIZE, "Received %d of %d bytes", received_data, BMP->bmp_size);
+					TraceNL( "verified " );
+
+					flashWriteIndex = 0;
+					return (1);
+				} else {
+					int count;
+					TraceDumpHex( SECONDARY_IMAGE_LOAD_ADDR + received_data, flashWriteIndex);
+
+					received_data += flashWriteIndex;
+					//snprintf((char *)string, MAX_STRING_SIZE, "Received %d of %d bytes", received_data, BMP->bmp_size);
+					TraceNL( "verification failed " );
+
+					for ( count = 0; count < 100000000; count++)
+						if( count % 10000000 == 0)
+							TracePutc( '.' );
+
+					flashWriteIndex = 0;
+				}
+			}
 		}
-		/*	Error in the IAP functions */
-		//  GLCD_DisplayString(5, 26, 0, "FAIL (RESET & ERASE IMAGE)");
-		return ( 0 );
-
-	}else{
-		return ( 0 );
 	}
+
+	return (0);
 }

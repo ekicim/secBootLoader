@@ -20,18 +20,24 @@
  * warranty that such application will be suitable for the specified
  * use without further testing or modification.
  *****************************************************************************/
+#include <bsp.h>
 #include <LPC17xx.h>
 #include "crc.h"
 #include "uart.h"
 #include "xmodem1k.h"
+#include "gsm.h"
+#include "iap_config.h"
 
 /* Protocol control ASCII characters */
 #define SOH							0x01
 #define STX							0x02
-#define EOT							0x04
+#define EOT							0x03
+//#define EOT							0x04
 #define ACK							0x06
 #define NAK							0x15
 #define POLL						0x43
+
+
 
 /* Internal state machine */
 #define STATE_IDLE					0
@@ -39,10 +45,10 @@
 #define STATE_RECEIVING				2
 
 /* Define the rate at which the server will be polled when starting a transfer */
-#define POLL_PERIOD_ms				3000
+#define POLL_PERIOD_ms				20000
 
 /* Define packet timeout period (maximum time to receive a packet) */
-#define PACKET_TIMEOUT_PERIOD_ms	7000
+#define PACKET_TIMEOUT_PERIOD_ms	20000
 
 /* Baud rate to be used by UART interface */
 #define UART_NUM					0
@@ -50,43 +56,366 @@
 
 /* Size of packet payloads and header */
 #define LONG_PACKET_PAYLOAD_LEN		1024
+//#define LONG_PACKET_PAYLOAD_LEN		64
 #define SHORT_PACKET_PAYLOAD_LEN	128
 #define PACKET_HEADER_LEN			3
 
+#define RECEIVE_BUFF_LEN			1500
+
+
 /* Buffer in which received data is stored, must be aligned on a word boundary
-   as point to this array is going to be passed to IAP routines (which require
-   word alignment). */
+ as point to this array is going to be passed to IAP routines (which require
+ word alignment). */
 static uint8_t au8RxBuffer[LONG_PACKET_PAYLOAD_LEN] __attribute__ ((aligned(4)));
 
 /* Local functions */
-static void vTimerStart(uint32_t u32Periodms);
+static void vTimerStart( uint32_t u32Periodms );
+uint8_t XModemReadByte( unsigned char* pByte );
 
-
-static char	receiveBuf[1500];
-static uint16_t	dataLen   = 0;		// number of bytes in the buffer
-static uint16_t	dataIndex = 0;  // current byte to be processed
+static char receiveBuf[RECEIVE_BUFF_LEN];
+static uint16_t dataLen = 0;		// number of bytes in the buffer
+static uint16_t dataIndex = 0;  // current byte to be processed
 
 /*
  * Helper function reads a block of data from GSM TCP connection
  * and services it byte by byte
+ *
+ * parsing a message like the following
+ * 41 54 2b 51 49 52 44 3d 31 2c 31 2c 30 2c 31 30  AT+QIRD=1,1,0,10
+ * 35 30 0d 0d 0a 2b 51 49 52 44 3a 20 34 36 2e 34  50...+QIRD: 46.4
+ * 2e 31 30 30 2e 31 36 38 3a 35 30 30 37 2c 54 43  .100.168:5007,TC
+ * 50 2c 31 0d 0a 32 0d 0a 4f 4b 0d 0a 0d 0a 2b 51  P,1..2..OK....+Q
+ * 49 52 44 49 3a 20 31 2c 31 2c 30 0d 0a           IRDI: 1,1,0.
  */
-uint8_t	XModemReadByte( char* pByte )
-{
-	if( dataIndex >= dataLen )
-	{
+//uint8_t XModemReadByte(char* pByte) {
+//	char* pdata;
+//	char* pnewline;
+//	char asciiLen[10];
+//	unsigned int len, i;
+//
+//	if (dataIndex >= dataLen) {
+//		// all buffer consumed read more from TCP connection
+//		dataLen = GSM_TCP_Recv( receiveBuf, 1500 );
+//		receiveBuf[dataLen + 1] = '\0';
+//
+//		// find the length of the message between
+//		// ",TCP," and "\r\n"
+//		pdata = strstr( receiveBuf, ",TCP," );
+//		if (pnewline == NULL) {
+//			return (0);
+//		}
+//
+//		pnewline = strstr( pdata, "\r\n" );
+//		if (pnewline == NULL) {
+//			return (0);
+//		}
+//
+//		strncpy( asciiLen, pdata + 5, pnewline - pdata );
+//
+//		asciiLen[pnewline - pdata] = '\0';
+//
+//		len = atoi(asciiLen);
+//
+//		int count = sprintf(asciiLen, "%d", len );
+//		asciiLen[count] = '\0';
+//		TraceDumpHex(asciiLen, strlen(asciiLen));
+//
+//		for (i = 0; i < len; i++) {
+//			receiveBuf[i] = *(pnewline + 2 + i);
+//		}
+//		dataLen   = len;
+//		dataIndex = 0;
+//		if( dataLen <= 0 ) {
+//			dataLen = 0;
+//			return (0);  // no data available
+//		}
+//	}
+//
+//	(*pByte) = receiveBuf[dataIndex++];
+//	return (1);
+//}
+
+
+uint8_t XModemReadByte( unsigned char* pByte) {
+	char* pdata;
+	char* pnewline;
+	char asciiLen[10];
+	unsigned int len, i;
+	unsigned dataoffset;
+
+	if (dataIndex >= dataLen) {
 		// all buffer consumed read more from TCP connection
 		dataLen = GSM_TCP_Recv( receiveBuf, 1500 );
-		dataIndex = 0;
+		receiveBuf[dataLen + 1] = '\0';
 
-		if( dataLen <= 0 )
+		// find the length of the message between
+		// ",TCP," and "\r\n"
+		pdata = strstr( receiveBuf, "IPD" );
+		if (pdata == NULL)
 		{
+			pdata = strstr( receiveBuf, ",TCP," );
+			if (pdata == NULL) {
+				return (0);
+			}
+
+			pnewline = strstr(pdata, "\r\n");
+			dataoffset = 2;
+			if (pnewline == NULL) {
+				return (0);
+			}
+
+		} else
+		{
+			pnewline = strstr( pdata, "TCP:" );
+			if (pnewline == NULL) {
+				return (0);
+			}
+			dataoffset = 4;
+		}
+
+		strncpy( asciiLen, pdata + 3, pnewline - pdata );
+
+		asciiLen[pnewline - pdata] = '\0';
+
+		len = atoi(asciiLen);
+
+//		int count = sprintf(asciiLen, "%d", len );
+//		asciiLen[count] = '\0';
+//		TraceDumpHex(asciiLen, strlen(asciiLen));
+
+		for (i = 0; i < len; i++) {
+			receiveBuf[i] = *(pnewline + dataoffset + i);
+		}
+		dataLen   = len;
+		dataIndex = 0;
+		if( dataLen <= 0 ) {
 			dataLen = 0;
-			return ( 0 );  // no data available
+			return (0);  // no data available
 		}
 	}
 
 	(*pByte) = receiveBuf[dataIndex++];
-	return ( 1 );
+	return (1);
+}
+
+
+int XModem1K_Client(
+		uint32_t (*pu32Xmodem1kRxPacketCallback)(uint8_t *pu8Data,
+				uint16_t u16Len)) {
+	uint32_t u32InProgress = 1;
+	uint32_t u32State = STATE_IDLE;
+	uint32_t u32ByteCount;
+	uint32_t u32PktLen;
+	uint16_t u16CRC;
+
+	char buffer[200];
+	uint16_t	len;
+
+	uint32_t trials;
+
+	/* Prepare UART for RX/TX */
+
+	while (u32InProgress) {
+		WDTFeed();
+		switch (u32State) {
+		case STATE_IDLE: {
+
+			/* Send command to server indicating we are ready to receive */
+			uint8_t u8Cmd = POLL;
+
+			TraceNL( "Start downloading" );
+			TracePutcHex( u8Cmd );
+			GSM_TCP_Send(&u8Cmd, 1);
+
+			/* Start timeout to send another poll if we do not get a response */
+			vTimerStart(POLL_PERIOD_ms);
+			trials   = DOWNLOAD_MAX_TRIALS;
+
+			u32State = STATE_CONNECTING;
+		}
+			break;
+
+		case STATE_CONNECTING: {
+			uint8_t u8Data;
+
+			/* Check if a character has been received on the UART */
+			if( XModemReadByte( &u8Data ) )
+			{
+				/* Expecting a start of packet character */
+				if( u8Data == SOH )
+				{
+					/* SOH indicates short pay load packet is being transmitted */
+					u32PktLen = SHORT_PACKET_PAYLOAD_LEN;
+					u32ByteCount = 1;
+
+					/* Start packet timeout */
+					vTimerStart( PACKET_TIMEOUT_PERIOD_ms);
+
+					/* Wait for a further characters */
+					u32State = STATE_RECEIVING;
+				}
+			} else /* No data received yet, check poll command timeout */
+			{
+				if ((LPC_TIM0->TCR & 0x01) == 0) {
+					/* Timeout expired following poll command transmission so try again.. */
+					uint8_t u8Cmd = POLL;
+
+					if (trials-- > 0) {
+						TraceNL("Connecting state timer expired sending  new request  ");
+						TracePutcHex( u8Cmd );
+						TraceNL("\r\n");
+						GSM_TCP_Send(&u8Cmd, 1);
+					} else {
+						TraceNL("No reply give up upgrading");
+						return ( DOWNLOAD_ERR_TIMEOUT );
+					}
+
+					/*
+					 * Restart timeout to send another poll
+					 * if we do not get a response
+					 */
+					vTimerStart( POLL_PERIOD_ms);
+				}
+			}
+		}
+			break;
+
+		case STATE_RECEIVING: {
+			uint8_t u8Data;
+
+			/* Check if a character has been received on the UART */
+			if( XModemReadByte( &u8Data ) )
+			{
+				// TracePutcHex( u8Data );
+				/* Position of received byte determines action we take */
+				if( u32ByteCount == 0 )
+				{
+					/* Expecting a start of packet character */
+					if( u8Data == SOH ) {
+						/* SOH indicates short pay load packet is being transmitted */
+						u32PktLen = SHORT_PACKET_PAYLOAD_LEN;
+						u32ByteCount = 1;
+
+						/* Start packet timeout */
+						vTimerStart(PACKET_TIMEOUT_PERIOD_ms);
+					} else if (u8Data == EOT) {
+						TraceNL("Received EOT ");
+						/* Server indicating transmission is complete */
+						TraceNL("Closing TCP connection ");
+						GSM_TCP_Close( );
+
+						u32InProgress = 0;
+
+						sprintf( buffer, "byte count: %d, packet len %d\r\n", u32ByteCount, u32PktLen);
+						TraceDumpHex( buffer, strlen( buffer ) );
+
+						/* Call the call back function to indicated a complete transmission */
+						/* If length == 0, then EOT */
+						pu32Xmodem1kRxPacketCallback(&au8RxBuffer[0], 0);
+
+					    // We should have completed the image reception now dump it to see if any problem.
+						TraceDumpHex( SECONDARY_IMAGE_LOAD_ADDR, 6256 );
+
+						return ( 0 );
+
+					} else {
+						// Unexpected char ignore it
+					}
+				} else if (u32ByteCount == 1) {
+					/* Byte 1 is the packet number - should be different from last one we received */
+					u32ByteCount++;
+				} else if (u32ByteCount == 2) {
+					/* Byte 2 is the packet number inverted - check for error with last byte */
+					u32ByteCount++;
+				} else if( ((u32ByteCount == 131) && (u32PktLen == SHORT_PACKET_PAYLOAD_LEN)) )
+				{
+					/* If pay load is short byte 131 is the MS byte of the packet CRC, if pay load
+					 is long byte 1027 is the MS byte of the packet CRC. */
+					u16CRC = u8Data;
+					u32ByteCount++;
+
+				}
+				else if( (u32ByteCount == 132) && (u32PktLen == SHORT_PACKET_PAYLOAD_LEN) )
+				{
+					/* If pay load is short byte 132 is the LS byte of the packet CRC, if pay load
+					 is long byte 1028 is the LS byte of the packet CRC. */
+					u16CRC <<= 8;
+					u16CRC |= u8Data;
+
+					/* Check the received CRC against the CRC we generate on the packet data */
+// TODO					if( u16CRC_Calc16(&au8RxBuffer[0], u32PktLen) == u16CRC )
+					if( 1 )
+					{
+						uint8_t u8Cmd;
+
+						/* Have now received full packet, call handler
+						 * BEFORE sending ACK to application
+						 can process data before more is sent. */
+						if( pu32Xmodem1kRxPacketCallback(&au8RxBuffer[0], u32PktLen) != 0 )
+						{
+							/* Packet handled successfully, send ACK to server indicating
+							 *  we are ready for next packet */
+							u8Cmd = ACK;
+							TraceNL("Received a frame ");
+							TraceNL("Sending  ACK ");
+							GSM_TCP_Send( &u8Cmd, 1 );
+							DelayMs( 1000 );
+
+						} else
+						{
+							/* Something went wrong with packet handler,
+							 * all we can do is send NAK causing the
+							 packet to be retransmitted by the server.. */
+							u8Cmd = NAK;
+							TraceNL("Sending  NACK");
+							TracePutcHex( u8Cmd );
+							TraceNL("\r\n");
+
+							GSM_TCP_Send(&u8Cmd, 1);
+							DelayMs( 1000 );
+						}
+					} else /* Error CRC calculated does not match that received */
+					{
+						/* Indicate problem to server - should result in packet being resent.. */
+						uint8_t u8Cmd = NAK;
+						TraceNL("CRC does not match  NACKing");
+						GSM_TCP_Send(&u8Cmd, 1);
+					}
+					u32ByteCount = 0;
+
+				} else {
+					/* Must be pay load data so store */
+					au8RxBuffer[u32ByteCount - PACKET_HEADER_LEN] = u8Data;
+					u32ByteCount++;
+				}
+			}
+			else
+			{
+				if( (LPC_TIM0->TCR & 0x01) == 0 )
+				{
+					/* Timeout expired no data received stop upgrade  */
+					if (trials-- > 0)
+					{
+						TraceNL("Time out in RECEIVING   ");
+						uint8_t u8Cmd = NAK;
+						GSM_TCP_Send(&u8Cmd, 1);
+
+						u32ByteCount = 0;
+						vTimerStart( POLL_PERIOD_ms);
+					} else {
+						// no more trying giving up upgrading
+						TraceNL("Download process failed giving up upgrading");
+						return ( DOWNLOAD_ERR_TIMEOUT );
+					}
+				}
+			}
+		}
+			break;
+
+		default:
+			break;
+		}
+	}
 }
 
 
@@ -100,425 +429,178 @@ uint8_t	XModemReadByte( char* pByte )
  ** Returned value:  None
  **
  *****************************************************************************/
-void XModem1K_Client(uint32_t (*pu32Xmodem1kRxPacketCallback)(uint8_t *pu8Data, uint16_t u16Len))
-{
-	uint32_t u32InProgress = 1;
-	uint32_t u32State = STATE_IDLE;
-	uint32_t u32ByteCount;
-	uint32_t u32PktLen;
-	uint16_t u16CRC;
-
-
-	/* Prepare UART for RX/TX */
-
-	while(u32InProgress)
-	{
-		switch (u32State)
-		{
-			case STATE_IDLE:
-			{
-				/* Send command to server indicating we are ready to receive */
-				uint8_t u8Cmd = POLL;
-				GSM_SendToServerTCP( &u8Cmd, 1 );
-				// UARTSend(UART_NUM, &u8Cmd, 1);
-
-				/* Start timeout to send another poll if we do not get a response */
-				vTimerStart(POLL_PERIOD_ms);
-
-				/* Wait for a response */
-				u32State = STATE_CONNECTING;
-			}
-			break;
-
-			case STATE_CONNECTING:
-			{
-				uint8_t u8Data;
-
-				/* Check if a character has been received on the UART */
-				if( XModemReadByte( &u8Data ) )
-				{
-					/* Expecting a start of packet character */
-					if( (u8Data == STX) || (u8Data == SOH) )
-					{
-						if( u8Data == STX )
-						{
-							/* STX indicates long payload packet is being transmitted */
-							u32PktLen = LONG_PACKET_PAYLOAD_LEN;
-						}
-						else
-						{
-							/* SOH indicates short payload packet is being transmitted */
-							u32PktLen = SHORT_PACKET_PAYLOAD_LEN;
-						}
-						u32ByteCount = 1;
-
-						/* Start packet timeout */
-						vTimerStart(PACKET_TIMEOUT_PERIOD_ms);
-
-						/* Wait for a further characters */
-						u32State = STATE_RECEIVING;
-					}
-				}
-				else /* No data received yet, check poll command timeout */
-				{
-					if ((LPC_TIM0->TCR & 0x01) == 0)
-					{
-						/* Timeout expired following poll command transmission so try again.. */
-						uint8_t u8Cmd = POLL;
-
-						GSM_SendToServerTCP( &u8Cmd, 1 );
-						// UARTSend(UART_NUM, &u8Cmd, 1);
-
-						/* Restart timeout to send another poll if we do not get a response */
-						vTimerStart(POLL_PERIOD_ms);
-					}
-				}
-			}
-			break;
-
-			case STATE_RECEIVING:
-			{
-				uint8_t u8Data;
-
-				/* Check if a character has been received on the UART */
-				if( XModemReadByte( &u8Data ) )
-				{
-					/* Position of received byte determines action we take */
-					if (u32ByteCount == 0)
-					{
-						/* Expecting a start of packet character */
-						if ((u8Data == STX) || (u8Data == SOH))
-						{
-							if (u8Data == STX)
-							{
-								/* STX indicates long payload packet is being transmitted */
-								u32PktLen = LONG_PACKET_PAYLOAD_LEN;
-							}
-							else
-							{
-								/* SOH indicates short payload packet is being transmitted */
-								u32PktLen = SHORT_PACKET_PAYLOAD_LEN;
-							}
-							u32ByteCount = 1;
-
-							/* Start packet timeout */
-							vTimerStart(PACKET_TIMEOUT_PERIOD_ms);
-						}
-						else if (u8Data == EOT)
-						{
-							/* Server indicating transmission is complete */
-							uint8_t u8Cmd = ACK;
-
-							GSM_SendToServerTCP( &u8Cmd, 1 );
-							// UARTSend(UART_NUM, &u8Cmd, 1);
-
-							/* Close xmodem client */
-							u32InProgress = 0;
-
-							/* Call the call back function to indicated a complete transmission */
-							/* If length == 0, then EOT */
-							pu32Xmodem1kRxPacketCallback(&au8RxBuffer[0], 0);
-						}
-						else
-						{
-							/* TODO - Unexpected character, do what...? */
-						}
-					}
-					else if (u32ByteCount == 1)
-					{
-						/* Byte 1 is the packet number - should be different from last one we received */
-						u32ByteCount++;
-					}
-					else if (u32ByteCount == 2)
-					{
-						/* Byte 2 is the packet number inverted - check for error with last byte */
-						u32ByteCount++;
-					}
-					else if (((u32ByteCount == 131 ) && (u32PktLen == SHORT_PACKET_PAYLOAD_LEN)) ||
-							 ((u32ByteCount == 1027) && (u32PktLen == LONG_PACKET_PAYLOAD_LEN)))
-					{
-						/* If payload is short byte 131 is the MS byte of the packet CRC, if payload
-						   is long byte 1027 is the MS byte of the packet CRC. */
-						u16CRC = u8Data;
-						u32ByteCount++;
-					}
-					else if (((u32ByteCount == 132)  && (u32PktLen == SHORT_PACKET_PAYLOAD_LEN)) ||
-					         ((u32ByteCount == 1028) && (u32PktLen == LONG_PACKET_PAYLOAD_LEN)))
-					{
-						/* If payload is short byte 132 is the LS byte of the packet CRC, if payload
-						   is long byte 1028 is the LS byte of the packet CRC. */
-						u16CRC <<= 8;
-						u16CRC  |= u8Data;
-
-						/* Check the received CRC against the CRC we generate on the packet data */
-						if (u16CRC_Calc16(&au8RxBuffer[0], u32PktLen) == u16CRC)
-						{
-							uint8_t u8Cmd;
-
-							/* Have now received full packet, call handler BEFORE sending ACK to application
-							   can process data before more is sent. */
-							if (pu32Xmodem1kRxPacketCallback(&au8RxBuffer[0], u32PktLen) != 0)
-							{
-								/* Packet handled successfully, send ACK to server indicating we are ready for next packet */
-								u8Cmd = ACK;
-
-								GSM_SendToServerTCP( &u8Cmd, 1 );
-								// UARTSend(UART_NUM, &u8Cmd, 1);
-							}
-							else
-							{
-								/* Something went wrong with packet handler, all we can do is send NAK causing the
-								   packet to be retransmitted by the server.. */
-								u8Cmd = NAK;
-								GSM_SendToServerTCP( &u8Cmd, 1 );
-								// UARTSend(UART_NUM, &u8Cmd, 1);
-							}
-						}
-						else /* Error CRC calculated does not match that received */
-						{
-							/* Indicate problem to server - should result in packet being resent.. */
-							uint8_t u8Cmd = NAK;
-
-							GSM_SendToServerTCP( &u8Cmd, 1 );
-							// UARTSend(UART_NUM, &u8Cmd, 1);
-						}
-						u32ByteCount = 0;
-					}
-					else
-					{
-						/* Must be payload data so store */
-						au8RxBuffer[u32ByteCount - PACKET_HEADER_LEN] = u8Data;
-						u32ByteCount++;
-					}
-				}
-				else
-				{
-					/* TODO - Check packet timeout */
-				}
-			}
-			break;
-
-			default:
-				break;
-		}
-	}
-}
-
-/*****************************************************************************
- ** Function name:
- **
- ** Descriptions:
- **
- ** Parameters:	    None
- **
- ** Returned value:  None
- **
- *****************************************************************************/
-void vXmodem1k_Client(uint32_t (*pu32Xmodem1kRxPacketCallback)(uint8_t *pu8Data, uint16_t u16Len))
-{
-	uint32_t u32InProgress = 1;
-	uint32_t u32State = STATE_IDLE;
-	uint32_t u32ByteCount;
-	uint32_t u32PktLen;
-	uint16_t u16CRC;
-
-	char	receiveBuf[1500];
-	uint16_t	dataLen;		// number of bytes in the buffer
-
-	/* Prepare UART for RX/TX */
-
-	while(u32InProgress)
-	{
-		switch (u32State)
-		{
-			case STATE_IDLE:
-			{
-				/* Send command to server indicating we are ready to receive */
-				uint8_t u8Cmd = POLL;
-				GSM_SendToServerTCP( &u8Cmd, 1 );
-				// UARTSend(UART_NUM, &u8Cmd, 1);
-
-				/* Start timeout to send another poll if we do not get a response */
-				vTimerStart(POLL_PERIOD_ms);
-
-				/* Wait for a response */
-				u32State = STATE_CONNECTING;
-			}
-			break;
-
-			case STATE_CONNECTING:
-			{
-				uint8_t u8Data;
-
-				/* Check if a character has been received on the UART */
-				if (ReadUart(&u8Data, UART_NUM) )
-				{
-					/* Expecting a start of packet character */
-					if ((u8Data == STX) || (u8Data == SOH))
-					{
-						if (u8Data == STX)
-						{
-							/* STX indicates long payload packet is being transmitted */
-							u32PktLen = LONG_PACKET_PAYLOAD_LEN;
-						}
-						else
-						{
-							/* SOH indicates short payload packet is being transmitted */
-							u32PktLen = SHORT_PACKET_PAYLOAD_LEN;
-						}
-						u32ByteCount = 1;
-
-						/* Start packet timeout */
-						vTimerStart(PACKET_TIMEOUT_PERIOD_ms);
-
-						/* Wait for a further characters */
-						u32State = STATE_RECEIVING;
-					}
-				}
-				else /* No data received yet, check poll command timeout */
-				{
-					if ((LPC_TIM0->TCR & 0x01) == 0)
-					{
-						/* Timeout expired following poll command transmission so try again.. */
-						uint8_t u8Cmd = POLL;
-
-						GSM_SendToServerTCP( &u8Cmd, 1 );
-						// UARTSend(UART_NUM, &u8Cmd, 1);
-
-						/* Restart timeout to send another poll if we do not get a response */
-						vTimerStart(POLL_PERIOD_ms);
-					}
-				}
-			}
-			break;
-
-			case STATE_RECEIVING:
-			{
-				uint8_t u8Data;
-
-				/* Check if a character has been received on the UART */
-				if (ReadUart(&u8Data, UART_NUM) )
-				{
-					/* Position of received byte determines action we take */
-					if (u32ByteCount == 0)
-					{
-						/* Expecting a start of packet character */
-						if ((u8Data == STX) || (u8Data == SOH))
-						{
-							if (u8Data == STX)
-							{
-								/* STX indicates long payload packet is being transmitted */
-								u32PktLen = LONG_PACKET_PAYLOAD_LEN;
-							}
-							else
-							{
-								/* SOH indicates short payload packet is being transmitted */
-								u32PktLen = SHORT_PACKET_PAYLOAD_LEN;
-							}
-							u32ByteCount = 1;
-
-							/* Start packet timeout */
-							vTimerStart(PACKET_TIMEOUT_PERIOD_ms);
-						}
-						else if (u8Data == EOT)
-						{
-							/* Server indicating transmission is complete */
-							uint8_t u8Cmd = ACK;
-
-							GSM_SendToServerTCP( &u8Cmd, 1 );
-							// UARTSend(UART_NUM, &u8Cmd, 1);
-
-							/* Close xmodem client */
-							u32InProgress = 0;
-
-							/* Call the call back function to indicated a complete transmission */
-							/* If length == 0, then EOT */
-							pu32Xmodem1kRxPacketCallback(&au8RxBuffer[0], 0);
-						}
-						else
-						{
-							/* TODO - Unexpected character, do what...? */
-						}
-					}
-					else if (u32ByteCount == 1)
-					{
-						/* Byte 1 is the packet number - should be different from last one we received */
-						u32ByteCount++;
-					}
-					else if (u32ByteCount == 2)
-					{
-						/* Byte 2 is the packet number inverted - check for error with last byte */
-						u32ByteCount++;
-					}
-					else if (((u32ByteCount == 131 ) && (u32PktLen == SHORT_PACKET_PAYLOAD_LEN)) ||
-							 ((u32ByteCount == 1027) && (u32PktLen == LONG_PACKET_PAYLOAD_LEN)))
-					{
-						/* If payload is short byte 131 is the MS byte of the packet CRC, if payload
-						   is long byte 1027 is the MS byte of the packet CRC. */
-						u16CRC = u8Data;
-						u32ByteCount++;
-					}
-					else if (((u32ByteCount == 132)  && (u32PktLen == SHORT_PACKET_PAYLOAD_LEN)) ||
-					         ((u32ByteCount == 1028) && (u32PktLen == LONG_PACKET_PAYLOAD_LEN)))
-					{
-						/* If payload is short byte 132 is the LS byte of the packet CRC, if payload
-						   is long byte 1028 is the LS byte of the packet CRC. */
-						u16CRC <<= 8;
-						u16CRC  |= u8Data;
-
-						/* Check the received CRC against the CRC we generate on the packet data */
-						if (u16CRC_Calc16(&au8RxBuffer[0], u32PktLen) == u16CRC)
-						{
-							uint8_t u8Cmd;
-
-							/* Have now received full packet, call handler BEFORE sending ACK to application
-							   can process data before more is sent. */
-							if (pu32Xmodem1kRxPacketCallback(&au8RxBuffer[0], u32PktLen) != 0)
-							{
-								/* Packet handled successfully, send ACK to server indicating we are ready for next packet */
-								u8Cmd = ACK;
-
-								GSM_SendToServerTCP( &u8Cmd, 1 );
-								// UARTSend(UART_NUM, &u8Cmd, 1);
-							}
-							else
-							{
-								/* Something went wrong with packet handler, all we can do is send NAK causing the
-								   packet to be retransmitted by the server.. */
-								u8Cmd = NAK;
-								GSM_SendToServerTCP( &u8Cmd, 1 );
-								// UARTSend(UART_NUM, &u8Cmd, 1);
-							}
-						}
-						else /* Error CRC calculated does not match that received */
-						{
-							/* Indicate problem to server - should result in packet being resent.. */
-							uint8_t u8Cmd = NAK;
-
-							GSM_SendToServerTCP( &u8Cmd, 1 );
-							// UARTSend(UART_NUM, &u8Cmd, 1);
-						}
-						u32ByteCount = 0;
-					}
-					else
-					{
-						/* Must be payload data so store */
-						au8RxBuffer[u32ByteCount - PACKET_HEADER_LEN] = u8Data;
-						u32ByteCount++;
-					}
-				}
-				else
-				{
-					/* TODO - Check packet timeout */
-				}
-			}
-			break;
-
-			default:
-				break;
-		}
-	}
-}
+//void vXmodem1k_Client(
+//		uint32_t (*pu32Xmodem1kRxPacketCallback)(uint8_t *pu8Data,
+//				uint16_t u16Len)) {
+//	uint32_t u32InProgress = 1;
+//	uint32_t u32State = STATE_IDLE;
+//	uint32_t u32ByteCount;
+//	uint32_t u32PktLen;
+//	uint16_t u16CRC;
+//
+//	char receiveBuf[1500];
+//	uint16_t dataLen;		// number of bytes in the buffer
+//
+//	/* Prepare UART for RX/TX */
+//
+//	while (u32InProgress) {
+//		switch (u32State) {
+//		case STATE_IDLE: {
+//			/* Send command to server indicating we are ready to receive */
+//			uint8_t u8Cmd = POLL;
+//			GSM_TCP_Send(&u8Cmd, 1);
+//			// UARTSend(UART_NUM, &u8Cmd, 1);
+//
+//			/* Start timeout to send another poll if we do not get a response */
+//			vTimerStart(POLL_PERIOD_ms);
+//
+//			/* Wait for a response */
+//			u32State = STATE_CONNECTING;
+//		}
+//			break;
+//
+//		case STATE_CONNECTING: {
+//			uint8_t u8Data;
+//
+//			/* Check if a character has been received on the UART */
+//			if (ReadUart(&u8Data, UART_NUM)) {
+//				/* Expecting a start of packet character */
+//				if ((u8Data == STX) || (u8Data == SOH)) {
+//					if (u8Data == STX) {
+//						/* STX indicates long payload packet is being transmitted */
+//						u32PktLen = LONG_PACKET_PAYLOAD_LEN;
+//					} else {
+//						/* SOH indicates short payload packet is being transmitted */
+//						u32PktLen = SHORT_PACKET_PAYLOAD_LEN;
+//					}
+//					u32ByteCount = 1;
+//
+//					/* Start packet timeout */
+//					vTimerStart(PACKET_TIMEOUT_PERIOD_ms);
+//
+//					/* Wait for a further characters */
+//					u32State = STATE_RECEIVING;
+//				}
+//			} else /* No data received yet, check poll command timeout */
+//			{
+//				if ((LPC_TIM0->TCR & 0x01) == 0) {
+//					/* Timeout expired following poll command transmission so try again.. */
+//					uint8_t u8Cmd = POLL;
+//
+//					GSM_TCP_Send(&u8Cmd, 1);
+//					// UARTSend(UART_NUM, &u8Cmd, 1);
+//
+//					/* Restart timeout to send another poll if we do not get a response */
+//					vTimerStart(POLL_PERIOD_ms);
+//				}
+//			}
+//		}
+//			break;
+//
+//		case STATE_RECEIVING: {
+//			uint8_t u8Data;
+//
+//			/* Check if a character has been received on the UART */
+//			if (ReadUart(&u8Data, UART_NUM)) {
+//				/* Position of received byte determines action we take */
+//				if (u32ByteCount == 0) {
+//					/* Expecting a start of packet character */
+//					if ((u8Data == STX) || (u8Data == SOH)) {
+//						if (u8Data == STX) {
+//							/* STX indicates long payload packet is being transmitted */
+//							u32PktLen = LONG_PACKET_PAYLOAD_LEN;
+//						} else {
+//							/* SOH indicates short payload packet is being transmitted */
+//							u32PktLen = SHORT_PACKET_PAYLOAD_LEN;
+//						}
+//						u32ByteCount = 1;
+//
+//						/* Start packet timeout */
+//						vTimerStart(PACKET_TIMEOUT_PERIOD_ms);
+//					} else if (u8Data == EOT) {
+//						/* Server indicating transmission is complete */
+//						uint8_t u8Cmd = ACK;
+//
+//						GSM_TCP_Send(&u8Cmd, 1);
+//						// UARTSend(UART_NUM, &u8Cmd, 1);
+//
+//						/* Close xmodem client */
+//						u32InProgress = 0;
+//
+//						/* Call the call back function to indicated a complete transmission */
+//						/* If length == 0, then EOT */
+//						pu32Xmodem1kRxPacketCallback(&au8RxBuffer[0], 0);
+//					} else {
+//						/* TODO - Unexpected character, do what...? */
+//					}
+//				} else if (u32ByteCount == 1) {
+//					/* Byte 1 is the packet number - should be different from last one we received */
+//					u32ByteCount++;
+//				} else if (u32ByteCount == 2) {
+//					/* Byte 2 is the packet number inverted - check for error with last byte */
+//					u32ByteCount++;
+//				} else if (((u32ByteCount == 131)
+//						&& (u32PktLen == SHORT_PACKET_PAYLOAD_LEN))
+//						|| ((u32ByteCount == 1027)
+//								&& (u32PktLen == LONG_PACKET_PAYLOAD_LEN))) {
+//					/* If payload is short byte 131 is the MS byte of the packet CRC, if payload
+//					 is long byte 1027 is the MS byte of the packet CRC. */
+//					u16CRC = u8Data;
+//					u32ByteCount++;
+//				} else if (((u32ByteCount == 132)
+//						&& (u32PktLen == SHORT_PACKET_PAYLOAD_LEN))
+//						|| ((u32ByteCount == 1028)
+//								&& (u32PktLen == LONG_PACKET_PAYLOAD_LEN))) {
+//					/* If payload is short byte 132 is the LS byte of the packet CRC, if payload
+//					 is long byte 1028 is the LS byte of the packet CRC. */
+//					u16CRC <<= 8;
+//					u16CRC |= u8Data;
+//
+//					/* Check the received CRC against the CRC we generate on the packet data */
+//					if (u16CRC_Calc16(&au8RxBuffer[0], u32PktLen) == u16CRC) {
+//						uint8_t u8Cmd;
+//
+//						/* Have now received full packet, call handler BEFORE sending ACK to application
+//						 can process data before more is sent. */
+//						if (pu32Xmodem1kRxPacketCallback(&au8RxBuffer[0],
+//								u32PktLen) != 0) {
+//							/* Packet handled successfully, send ACK to server indicating we are ready for next packet */
+//							u8Cmd = ACK;
+//
+//							GSM_TCP_Send(&u8Cmd, 1);
+//							// UARTSend(UART_NUM, &u8Cmd, 1);
+//						} else {
+//							/* Something went wrong with packet handler, all we can do is send NAK causing the
+//							 packet to be retransmitted by the server.. */
+//							u8Cmd = NAK;
+//							GSM_TCP_Send(&u8Cmd, 1);
+//							// UARTSend(UART_NUM, &u8Cmd, 1);
+//						}
+//					} else /* Error CRC calculated does not match that received */
+//					{
+//						/* Indicate problem to server - should result in packet being resent.. */
+//						uint8_t u8Cmd = NAK;
+//
+//						GSM_TCP_Send(&u8Cmd, 1);
+//						// UARTSend(UART_NUM, &u8Cmd, 1);
+//					}
+//					u32ByteCount = 0;
+//				} else {
+//					/* Must be payload data so store */
+//					au8RxBuffer[u32ByteCount - PACKET_HEADER_LEN] = u8Data;
+//					u32ByteCount++;
+//				}
+//			} else {
+//				/* TODO - Check packet timeout */
+//			}
+//		}
+//			break;
+//
+//		default:
+//			break;
+//		}
+//	}
+//}
 
 /*****************************************************************************
  ** Function name:
@@ -530,18 +612,18 @@ void vXmodem1k_Client(uint32_t (*pu32Xmodem1kRxPacketCallback)(uint8_t *pu8Data,
  ** Returned value:  None
  **
  *****************************************************************************/
-static void vTimerStart(uint32_t u32Periodms)
-{
+static void vTimerStart(uint32_t u32Periodms) {
 	/* Enable the timer clock */
 	LPC_SC->PCONP |= (1UL << 1);
 
 	/* Configure the timer so that we can poll for a match */
-	LPC_TIM0->TCR = 0x02;		/* reset timer */
-	LPC_TIM0->PR  = 0x00;		/* set prescaler to zero */
-	LPC_TIM0->MR0 = u32Periodms * ((SystemCoreClock / 4 / (LPC_TIM0->PR + 1)) / 1000UL);
-	LPC_TIM0->IR  = 0xFF;		/* reset all interrupts */
-	LPC_TIM0->MCR = 0x04;		/* stop timer on match */
-	LPC_TIM0->TCR = 0x01;		/* start timer */
+	LPC_TIM0->TCR = 0x02; /* reset timer */
+	LPC_TIM0->PR = 0x00; /* set prescaler to zero */
+	LPC_TIM0->MR0 = u32Periodms
+			* ((SystemCoreClock / 4 / (LPC_TIM0->PR + 1)) / 1000UL);
+	LPC_TIM0->IR = 0xFF; /* reset all interrupts */
+	LPC_TIM0->MCR = 0x04; /* stop timer on match */
+	LPC_TIM0->TCR = 0x01; /* start timer */
 }
 
 /*****************************************************************************

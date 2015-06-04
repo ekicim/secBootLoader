@@ -28,4 +28,5 @@ int GPS_ShutDown();
 int GPS_Open();
 void GPS_CleanBuffer();
 double last_lat,last_lon,prev_lat,prev_lon;
+
 #endif /* GPS_H_ */

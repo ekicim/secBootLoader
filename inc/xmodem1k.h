@@ -25,8 +25,14 @@
 
 #include <stdint.h>
 
-void vXmodem1k_Client(uint32_t (*pu32Xmodem1kRxPacketCallback)(uint8_t *pu8Data, uint16_t u16Len));
-void XModem1K_Client(uint32_t (*pu32Xmodem1kRxPacketCallback)(uint8_t *pu8Data, uint16_t u16Len));
+
+#define DOWNLOAD_MAX_TRIALS		(10)
+
+#define 	DOWNLOAD_ERR_TIMEOUT	(-1)
+
+
+void  	vXmodem1k_Client(uint32_t (*pu32Xmodem1kRxPacketCallback)(uint8_t *pu8Data, uint16_t u16Len));
+int 	XModem1K_Client(uint32_t (*pu32Xmodem1kRxPacketCallback)(uint8_t *pu8Data, uint16_t u16Len));
 
 #endif /* end __XMODEM1K_H */
 /*****************************************************************************

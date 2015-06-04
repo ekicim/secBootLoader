@@ -30,4 +30,10 @@ void GSM_GetCellInfo(char *cell_str);
 void GSM_GetLBS();
 int GSM_GetRegStat();
 
+int		GSM_TCP_Send( unsigned char* msg, uint16_t len );
+void	GSM_TCP_Close( void );
+void	GSM_EchoOFF( );
+void	GSM_EchoON( );
+int		GSM_SendToServerTCPTestST(char* msg);
+
 #endif /* GSM_H_ */

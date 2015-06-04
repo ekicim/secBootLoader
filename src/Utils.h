@@ -13,7 +13,7 @@ uint8_t device_power_state;
 #ifndef UTILS_H_
 #define UTILS_H_
 #define PORT_GSM		1
-#define Baudrate  9600  //  baudrate 9.6 Kbps
+#define Baudrate		9600
 //#define Baudrate  57600  //  baudrate 115.2 Kbps
 #define PORT_TRACE  	0
 #define PORT_GPS 		2
