@@ -164,6 +164,7 @@ int GSM_ConnectToTrioUpgradeServer(char *ip, char *port)
 	GSM_GetImsi(); //
 	int conn_stat = GSM_GetRegStat();
 
+	GSM_SendAt("ATI", response, 500);
 	WDTFeed();
 	GSM_SendAt("AT+QIFGCNT=1", response, 500);
 

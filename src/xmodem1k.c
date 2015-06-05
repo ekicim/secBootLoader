@@ -31,8 +31,8 @@
 /* Protocol control ASCII characters */
 #define SOH							0x01
 #define STX							0x02
-#define EOT							0x03
-//#define EOT							0x04
+//#define EOT							0x03
+#define EOT							0x04
 #define ACK							0x06
 #define NAK							0x15
 #define POLL						0x43
@@ -146,7 +146,7 @@ uint8_t XModemReadByte( unsigned char* pByte) {
 	if (dataIndex >= dataLen) {
 		// all buffer consumed read more from TCP connection
 		dataLen = GSM_TCP_Recv( receiveBuf, 1500 );
-		receiveBuf[dataLen + 1] = '\0';
+		receiveBuf[dataLen] = '\0';
 
 		// find the length of the message between
 		// ",TCP," and "\r\n"
@@ -179,6 +179,11 @@ uint8_t XModemReadByte( unsigned char* pByte) {
 
 		len = atoi(asciiLen);
 
+//		if( len - (dataLen + 47)  != 0 )
+//		{
+//			dataLen = GSM_TCP_Recv( receiveBuf + dataLen , 1000 );
+//		}
+
 //		int count = sprintf(asciiLen, "%d", len );
 //		asciiLen[count] = '\0';
 //		TraceDumpHex(asciiLen, strlen(asciiLen));
@@ -206,7 +211,8 @@ int XModem1K_Client(
 	uint32_t u32State = STATE_IDLE;
 	uint32_t u32ByteCount;
 	uint32_t u32PktLen;
-	uint16_t u16CRC;
+	uint16_t u16CRC, calculatedCRC;
+	uint16_t frameNum = 0;
 
 	char buffer[200];
 	uint16_t	len;
@@ -314,7 +320,7 @@ int XModem1K_Client(
 						pu32Xmodem1kRxPacketCallback(&au8RxBuffer[0], 0);
 
 					    // We should have completed the image reception now dump it to see if any problem.
-						TraceDumpHex( SECONDARY_IMAGE_LOAD_ADDR, 6256 );
+						TraceDumpHex( SECONDARY_IMAGE_LOAD_ADDR, 20000 );
 
 						return ( 0 );
 
@@ -323,9 +329,15 @@ int XModem1K_Client(
 					}
 				} else if (u32ByteCount == 1) {
 					/* Byte 1 is the packet number - should be different from last one we received */
+					frameNum = u8Data;
 					u32ByteCount++;
 				} else if (u32ByteCount == 2) {
 					/* Byte 2 is the packet number inverted - check for error with last byte */
+					frameNum <<= 8;
+					frameNum |= u8Data;
+					sprintf( buffer, "frame number :  %d\r\n", frameNum );
+				    TraceNL( buffer );
+
 					u32ByteCount++;
 				} else if( ((u32ByteCount == 131) && (u32PktLen == SHORT_PACKET_PAYLOAD_LEN)) )
 				{
@@ -342,12 +354,16 @@ int XModem1K_Client(
 					u16CRC <<= 8;
 					u16CRC |= u8Data;
 
+					calculatedCRC = u16CRC_Calc16( &au8RxBuffer[0], u32PktLen );
+					sprintf( buffer, "calculaetd crc : 0x%X\r\n", calculatedCRC );
+				    TraceNL( buffer );
+
 					/* Check the received CRC against the CRC we generate on the packet data */
-// TODO					if( u16CRC_Calc16(&au8RxBuffer[0], u32PktLen) == u16CRC )
-					if( 1 )
+					if( calculatedCRC == u16CRC )
 					{
 						uint8_t u8Cmd;
 
+						TraceNL("CRC matches ");
 						/* Have now received full packet, call handler
 						 * BEFORE sending ACK to application
 						 can process data before more is sent. */
@@ -359,20 +375,20 @@ int XModem1K_Client(
 							TraceNL("Received a frame ");
 							TraceNL("Sending  ACK ");
 							GSM_TCP_Send( &u8Cmd, 1 );
-							DelayMs( 1000 );
+							DelayMs( 100 );
 
 						} else
 						{
 							/* Something went wrong with packet handler,
 							 * all we can do is send NAK causing the
 							 packet to be retransmitted by the server.. */
-							u8Cmd = NAK;
+							u8Cmd = ACK;
 							TraceNL("Sending  NACK");
 							TracePutcHex( u8Cmd );
 							TraceNL("\r\n");
 
 							GSM_TCP_Send(&u8Cmd, 1);
-							DelayMs( 1000 );
+							DelayMs( 100 );
 						}
 					} else /* Error CRC calculated does not match that received */
 					{

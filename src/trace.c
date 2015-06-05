@@ -6,7 +6,9 @@
 
 void Trace( char* msg)
 {
+
 	UARTSend(PORT_TRACE, (unsigned char*)msg, strlen(msg));
+
 }
 
 void TraceNL( char* msg)
@@ -31,6 +33,7 @@ void TracePutcHex( char c )
 
 void TraceDumpHex( char* pMsg, int len )
 {
+#if defined (BOOTROM_DEBUG)
 	int i, count;
 	unsigned char buffer[300];
 	unsigned char buff[17];
@@ -66,5 +69,5 @@ void TraceDumpHex( char* pMsg, int len )
     }
 	count = sprintf(buffer, "  %s\r\n", buff);
 	UARTSend( PORT_TRACE, buffer, count);
-
+#endif
 }

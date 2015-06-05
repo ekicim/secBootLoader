@@ -93,7 +93,7 @@ void 	ExecuteApplicationImage( unsigned int startAddress );
 uint32_t	IsUpgradeRequested( void );
 
 
-
+static void DownloadSecondaryImage( void );
 
 
 /**************************************************************************************************
@@ -559,6 +559,11 @@ int main(void) {
 		TraceNL("EEPROM Init Ok.");
 	}
 
+
+	uint16_t crc = u16CRC_Calc16("adssadsadsadsadsadsa", 20);
+
+	sprintf(buffer, "CRC of adssadsadsadsadsadsa is : = %d \r\n", crc);
+	Trace(buffer);
 	LoadParams();
 	unsigned long int lastGPSLedToggle = 0;
 	memset(buffer, 0xAA, sizeof(buffer));
@@ -599,8 +604,9 @@ int main(void) {
 
 				DownloadSecondaryImage();
 
+				WDTFeed( );
 				TraceNL( "Download finished " );
-				ExecuteApplicationImage(SECONDARY_IMAGE_LOAD_ADDR);
+				ExecuteApplicationImage( SECONDARY_IMAGE_LOAD_ADDR );
 
 				for ( count = 0; count < 100000000; count++)
 					if( count % 10000000 == 0)
@@ -772,22 +778,35 @@ uint32_t	IsUpgradeRequested( void )
 
 void DownloadSecondaryImage( void )
 {
-	uint32_t	reason;
+	uint32_t	reason[5];
 	uint32_t	i;
 
-	for( i = SECONDARY_IMAGE_START_SEC; i <= SECONDARY_IMAGE_START_SEC; i++ )
-		u32IAP_EraseSectors( i, i);
+	char buff[100];
 
+	i = SECONDARY_IMAGE_START_SEC;
+	for( ; i <= SECONDARY_IMAGE_END_SEC; i++ )
+	{
+		u32IAP_PrepareSectors( i, i );
+		u32IAP_EraseSectors( i, i );
+	}
 	TraceNL( "Checking if target memory is blank" );
-	if( u32IAP_BlankCheckSectors( SECONDARY_IMAGE_START_SEC,
-			                      SECONDARY_IMAGE_END_SEC - 1, &reason )
-			== IAP_STA_SECTOR_NOT_BLANK )
+
+
+	i = SECONDARY_IMAGE_START_SEC;
+	for( ; i <= SECONDARY_IMAGE_END_SEC; i++ )
 	{
-		TraceNL( "Erasing flash range for the image" );
-		// u32IAP_EraseSectors( SECONDARY_IMAGE_START_SEC, SECONDARY_IMAGE_END_SEC);
-	}else
-	{
-		TraceNL( "Target flash range is blank" );
+		if( u32IAP_BlankCheckSectors( i, i, &reason[0] )== IAP_STA_SECTOR_NOT_BLANK )
+		{
+			sprintf(buff, "Target sector (%d) is not blank addr: 0x%X, 0x%X", i, reason[0], reason[1] );
+			TraceNL( buff );
+			u32IAP_PrepareSectors( i, i );
+			u32IAP_EraseSectors( i, i);
+
+		}else
+		{
+			sprintf(buff, "Target sector (%d) is blank ", i );
+			TraceNL( buff );
+		}
 	}
 
 	/*	Clear the received data counter using in the load_mage function */
@@ -835,6 +854,12 @@ static uint32_t load_image(uint8_t *data, uint16_t length){
 	uint32_t rc;
 	int i;
 
+
+	sprintf(buffer, "Totally : %d  lenght : %d\r\n",
+			received_data, length);
+
+	TraceDumpHex(buffer, strlen(buffer));
+
 	if( length == 0 && flashWriteIndex == 0 )
 	{
 		// Finished and all previous data has been written
@@ -855,6 +880,9 @@ static uint32_t load_image(uint8_t *data, uint16_t length){
 		}
 
 	}
+
+
+
 	if( flashWriteIndex && ((flashWriteIndex % FLASH_SECTOR_SIZE) == 0) )
 	{
 		sprintf(buffer, "Totally : %d  flashWriteIndex : %d\r\n",
@@ -883,7 +911,7 @@ static uint32_t load_image(uint8_t *data, uint16_t length){
 						             (uint32_t) flashWriteBuffer,
 									 flashWriteIndex, 0
 									);
-				sprintf( buffer, "u32IAP_Compare : %d\r\n", rc );
+				sprintf( buffer, "u32IAP_Compare : %d  wrote %d \r\n", rc , flashWriteIndex );
 				TraceNL( buffer );
 
 				/*	Verify the flash contents with the contents in RAM */
