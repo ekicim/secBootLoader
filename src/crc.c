@@ -34,7 +34,7 @@
 ** Returned value:  16-bit CRC
 **
 ******************************************************************************/
-uint16_t u16CRC_Calc16(const uint8_t *pu8Data, int16_t i16Len)
+uint16_t u16CRC_Calc16(const uint8_t *pu8Data, int32_t i16Len)
 {
 	uint8_t i;
 	uint16_t u16CRC = 0;

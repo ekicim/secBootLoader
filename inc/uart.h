@@ -49,6 +49,9 @@
 #define LSR_TEMT	0x40
 #define LSR_RXFE	0x80
 #define BUFSIZE		0xFF		   // 128 byte  Max. 256
+
+#define GSM_UART_BUFFER_SIZE		1100
+
 #define UART2_BUFFSIZE 0x7F8//0x3FC
 
 uint32_t UARTInit( uint32_t portNum, uint32_t Baudrate );

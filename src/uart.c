@@ -36,7 +36,7 @@ volatile uint32_t UART0Status, UART1Status, UART3Status, UART2Status;
 volatile uint8_t UART0CountOku, UART1CountOku, UART3CountOku, UART2CountOku;
 volatile uint8_t UART0TxEmpty = 1, UART1TxEmpty = 1, UART3TxEmpty = 1,
 		UART2TxEmpty = 1;
-volatile uint8_t UART0Buffer[BUFSIZE], UART1Buffer[BUFSIZE],
+volatile uint8_t UART0Buffer[BUFSIZE], UART1Buffer[GSM_UART_BUFFER_SIZE],
 		UART2Buffer[UART2_BUFFSIZE], UART3Buffer[BUFSIZE];
 volatile uint16_t UART0Count = 0, UART1Count = 0, UART2Count = 0, UART3Count = 0;
 
@@ -139,7 +139,7 @@ void UART1_IRQHandler(void) {
 			/* Note: read RBR will clear the interrupt */
 			UART1Buffer[UART1Count] = LPC_UART1->RBR;
 			UART1Count++;
-			if (UART1Count == BUFSIZE) {
+			if (UART1Count == GSM_UART_BUFFER_SIZE) {
 				UART1Count = 0; /* buffer overflow */
 			}
 		}
@@ -148,7 +148,7 @@ void UART1_IRQHandler(void) {
 		/* Receive Data Available */
 		UART1Buffer[UART1Count] = LPC_UART1->RBR;
 		UART1Count++;
-		if (UART1Count == BUFSIZE) {
+		if (UART1Count == GSM_UART_BUFFER_SIZE) {
 			UART1Count = 0; /* buffer overflow */
 		}
 	} else if (IIRValue == IIR_CTI) /* Character timeout indicator */
@@ -365,8 +365,15 @@ uint32_t UARTInit(uint32_t PortNum, uint32_t baudrate) {
 		}
 		LPC_UART1->LCR = 0x83; /* 8 bits, no Parity, 1 Stop bit */
 		Fdiv = (pclk / 16) / baudrate; /*baud rate */
-		LPC_UART1->DLM = Fdiv / 256;
-		LPC_UART1->DLL = Fdiv % 256;
+
+		if (baudrate == 115200){
+			LPC_UART1->DLM = 0;
+			LPC_UART1->DLL = 9;
+			LPC_UART1->FDR=1<<0|1<<5;
+		}else{
+			LPC_UART1->DLM = Fdiv / 256;
+			LPC_UART1->DLL = Fdiv % 256;
+		}
 		LPC_UART1->LCR = 0x03; /* DLAB = 0 */
 		LPC_UART1->FCR = 0x07; /* Enable and reset TX and RX FIFO. */
 		NVIC_EnableIRQ(UART1_IRQn);

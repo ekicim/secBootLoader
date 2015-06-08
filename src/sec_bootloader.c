@@ -110,7 +110,7 @@ enum DOWNLOAD_STATES
 
 
 
-#define FLASH_SECTOR_SIZE	256
+#define FLASH_SECTOR_SIZE	1024
 
 /**************************************************************************************************
  * LOCAL VARIABLES
@@ -547,7 +547,7 @@ int main(void) {
 
 	ConfigurePins();
 	UARTInit(PORT_TRACE, 115200);
-	UARTInit(PORT_GSM, Baudrate);
+	UARTInit(PORT_GSM, 115200);
 	UARTInit(PORT_GPS, Baudrate);
 	TraceNL("Hello P65 20150520.");
 	sprintf(buffer, "SystemCoreClock = %d Hz\n", SystemCoreClock);
@@ -815,6 +815,8 @@ void DownloadSecondaryImage( void )
 	TraceNL( "Starting download" );
 	/*	Store a new image into flash */
 	XModem1K_Client( &load_image );
+
+
 }
 
 
@@ -855,10 +857,8 @@ static uint32_t load_image(uint8_t *data, uint16_t length){
 	int i;
 
 
-	sprintf(buffer, "Totally : %d  lenght : %d\r\n",
-			received_data, length);
-
-	TraceDumpHex(buffer, strlen(buffer));
+	sprintf(buffer, "Totally received : %d   frame length : %d\r\n", received_data, length);
+	Trace( buffer );
 
 	if( length == 0 && flashWriteIndex == 0 )
 	{
@@ -872,17 +872,6 @@ static uint32_t load_image(uint8_t *data, uint16_t length){
 		flashWriteBuffer[flashWriteIndex++] = data[i];
 	}
 
-	if( length == 0 && (flashWriteIndex % FLASH_SECTOR_SIZE) )
-	{
-		for( i = flashWriteIndex; i < FLASH_SECTOR_SIZE; i++ )
-		{
-			flashWriteBuffer[flashWriteIndex++] = 0xFF;
-		}
-
-	}
-
-
-
 	if( flashWriteIndex && ((flashWriteIndex % FLASH_SECTOR_SIZE) == 0) )
 	{
 		sprintf(buffer, "Totally : %d  flashWriteIndex : %d\r\n",
@@ -893,7 +882,7 @@ static uint32_t load_image(uint8_t *data, uint16_t length){
 		/*	Prepare Sectors to be flashed */
 		// TODO arrange sectors for primary image
 		if (u32IAP_PrepareSectors(22, 27) == IAP_STA_CMD_SUCCESS) {
-			TraceNL("prepare ");
+			TraceNL("prepared ");
 
 			rc = u32IAP_CopyRAMToFlash(
 					SECONDARY_IMAGE_LOAD_ADDR + received_data,
@@ -912,7 +901,7 @@ static uint32_t load_image(uint8_t *data, uint16_t length){
 									 flashWriteIndex, 0
 									);
 				sprintf( buffer, "u32IAP_Compare : %d  wrote %d \r\n", rc , flashWriteIndex );
-				TraceNL( buffer );
+				Trace( buffer );
 
 				/*	Verify the flash contents with the contents in RAM */
 				if (rc == IAP_STA_CMD_SUCCESS) {

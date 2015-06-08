@@ -26,7 +26,7 @@
 
 #include <stdint.h>
 
-uint16_t u16CRC_Calc16(const uint8_t *pu8Data, int16_t u16Len);
+uint16_t u16CRC_Calc16(const uint8_t *pu8Data, int32_t u16Len);
 
 #endif /* end __CRC_H */
 /*****************************************************************************

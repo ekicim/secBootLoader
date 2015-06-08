@@ -26,7 +26,7 @@
 #include <stdint.h>
 
 
-#define DOWNLOAD_MAX_TRIALS		(10)
+#define DOWNLOAD_MAX_TRIALS		(3)
 
 #define 	DOWNLOAD_ERR_TIMEOUT	(-1)
 

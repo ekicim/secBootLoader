@@ -57,10 +57,10 @@
 /* Size of packet payloads and header */
 #define LONG_PACKET_PAYLOAD_LEN		1024
 //#define LONG_PACKET_PAYLOAD_LEN		64
-#define SHORT_PACKET_PAYLOAD_LEN	128
+#define SHORT_PACKET_PAYLOAD_LEN	1024
 #define PACKET_HEADER_LEN			3
 
-#define RECEIVE_BUFF_LEN			1500
+#define RECEIVE_BUFF_LEN			1100
 
 
 /* Buffer in which received data is stored, must be aligned on a word boundary
@@ -145,7 +145,7 @@ uint8_t XModemReadByte( unsigned char* pByte) {
 
 	if (dataIndex >= dataLen) {
 		// all buffer consumed read more from TCP connection
-		dataLen = GSM_TCP_Recv( receiveBuf, 1500 );
+		dataLen = GSM_TCP_Recv( receiveBuf, RECEIVE_BUFF_LEN );
 		receiveBuf[dataLen] = '\0';
 
 		// find the length of the message between
@@ -313,14 +313,45 @@ int XModem1K_Client(
 						u32InProgress = 0;
 
 						sprintf( buffer, "byte count: %d, packet len %d\r\n", u32ByteCount, u32PktLen);
-						TraceDumpHex( buffer, strlen( buffer ) );
+						Trace( buffer, strlen( buffer ) );
 
 						/* Call the call back function to indicated a complete transmission */
 						/* If length == 0, then EOT */
-						pu32Xmodem1kRxPacketCallback(&au8RxBuffer[0], 0);
+						pu32Xmodem1kRxPacketCallback( SECONDARY_IMAGE_LOAD_ADDR, 0);
+
+						uint32_t imageSize;
+						uint16_t imageCRC;
+
+						XModemReadByte( &u8Data );
+						imageSize = u8Data << 24 & 0xFF000000;
+
+						XModemReadByte( &u8Data );
+						imageSize |= u8Data << 16 & 0x00FF0000;
+
+						XModemReadByte( &u8Data );
+						imageSize |= u8Data << 8 & 0x0000FF00;
+
+						XModemReadByte( &u8Data );
+						imageSize |= u8Data << 0 & 0x000000FF;
+
+
+						XModemReadByte( &u8Data );
+						imageCRC = u8Data << 8 & 0xFF00;
+
+						XModemReadByte( &u8Data );
+						imageCRC |= u8Data << 0 & 0x00FF;
+
+						sprintf( buffer, "file size: 0x%X, CRC: 0x%X\r\n", imageSize, imageCRC );
+						Trace( buffer );
+
+						calculatedCRC = u16CRC_Calc16( SECONDARY_IMAGE_LOAD_ADDR, imageSize );
+
+						sprintf( buffer, "Calculated Image CRC: 0x%X\r\n", calculatedCRC );
+						Trace( buffer );
+
 
 					    // We should have completed the image reception now dump it to see if any problem.
-						TraceDumpHex( SECONDARY_IMAGE_LOAD_ADDR, 20000 );
+						// TraceDumpHex( SECONDARY_IMAGE_LOAD_ADDR, 20000 );
 
 						return ( 0 );
 
@@ -339,7 +370,8 @@ int XModem1K_Client(
 				    TraceNL( buffer );
 
 					u32ByteCount++;
-				} else if( ((u32ByteCount == 131) && (u32PktLen == SHORT_PACKET_PAYLOAD_LEN)) )
+				} else if( ((u32ByteCount == (SHORT_PACKET_PAYLOAD_LEN+3)) &&
+						    (u32PktLen == SHORT_PACKET_PAYLOAD_LEN)) )
 				{
 					/* If pay load is short byte 131 is the MS byte of the packet CRC, if pay load
 					 is long byte 1027 is the MS byte of the packet CRC. */
@@ -347,7 +379,8 @@ int XModem1K_Client(
 					u32ByteCount++;
 
 				}
-				else if( (u32ByteCount == 132) && (u32PktLen == SHORT_PACKET_PAYLOAD_LEN) )
+				else if( (u32ByteCount == (SHORT_PACKET_PAYLOAD_LEN+4)) &&
+						 (u32PktLen == SHORT_PACKET_PAYLOAD_LEN) )
 				{
 					/* If pay load is short byte 132 is the LS byte of the packet CRC, if pay load
 					 is long byte 1028 is the LS byte of the packet CRC. */
@@ -363,38 +396,24 @@ int XModem1K_Client(
 					{
 						uint8_t u8Cmd;
 
+						u8Cmd = ACK;
+						GSM_TCP_Send( &u8Cmd, 1 );
+
+						WDTFeed();
+						// write to flash
+						pu32Xmodem1kRxPacketCallback( &au8RxBuffer[0], u32PktLen );
+
+						TraceNL("Received a frame ");
+						TraceNL("Sending  ACK ");
 						TraceNL("CRC matches ");
-						/* Have now received full packet, call handler
-						 * BEFORE sending ACK to application
-						 can process data before more is sent. */
-						if( pu32Xmodem1kRxPacketCallback(&au8RxBuffer[0], u32PktLen) != 0 )
-						{
-							/* Packet handled successfully, send ACK to server indicating
-							 *  we are ready for next packet */
-							u8Cmd = ACK;
-							TraceNL("Received a frame ");
-							TraceNL("Sending  ACK ");
-							GSM_TCP_Send( &u8Cmd, 1 );
-							DelayMs( 100 );
+						DelayMs( 100 );
 
-						} else
-						{
-							/* Something went wrong with packet handler,
-							 * all we can do is send NAK causing the
-							 packet to be retransmitted by the server.. */
-							u8Cmd = ACK;
-							TraceNL("Sending  NACK");
-							TracePutcHex( u8Cmd );
-							TraceNL("\r\n");
 
-							GSM_TCP_Send(&u8Cmd, 1);
-							DelayMs( 100 );
-						}
 					} else /* Error CRC calculated does not match that received */
 					{
 						/* Indicate problem to server - should result in packet being resent.. */
 						uint8_t u8Cmd = NAK;
-						TraceNL("CRC does not match  NACKing");
+						TraceNL("CRC does not match  NAK ing");
 						GSM_TCP_Send(&u8Cmd, 1);
 					}
 					u32ByteCount = 0;

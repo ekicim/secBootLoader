@@ -33,7 +33,9 @@ void TracePutcHex( char c )
 
 void TraceDumpHex( char* pMsg, int len )
 {
+#define BOOTROM_DEBUG  1
 #if defined (BOOTROM_DEBUG)
+
 	int i, count;
 	unsigned char buffer[300];
 	unsigned char buff[17];

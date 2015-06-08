@@ -42,11 +42,11 @@ uint16_t GSM_SendAt( char* cmd, char *response, int delay )
 //				GSM_SendAt("AT+QIRD=1",response,500);
 //	}*/
 
-	char buffer[1000];
+	char buffer[100];
 	uint16_t	len;
 
 	sprintf( buffer, "---> %s\r\n", cmd );
-	TraceDumpHex( buffer, strlen( buffer ) );
+	Trace( buffer );
 
 	int count = sprintf( buffer, "%s\r\n", cmd );
 	UARTSend( PORT_GSM, buffer, count );
@@ -56,7 +56,7 @@ uint16_t GSM_SendAt( char* cmd, char *response, int delay )
 	len = ReadUart( response, PORT_GSM );
 	response[len] = '\0';
 
-	TraceDumpHex( response, len );
+	// TraceDumpHex( response, len );
 
     return ( len );
 }
@@ -65,9 +65,7 @@ uint16_t GSM_SendAt( char* cmd, char *response, int delay )
 
 int16_t GSM_TCP_Recv( char* pDataBuf, int16_t maxBytes )
 {
-	Trace( "Entered GSM_TCP_Recv" );
-
-	return ( GSM_SendAt( "AT+QIRD=1,1,0,200", pDataBuf, 1000 ) );
+	return ( GSM_SendAt( "AT+QIRD=1,1,0,1100", pDataBuf, 1000 ) );
 }
 
 void GSM_CheckBuffer() {
@@ -197,7 +195,8 @@ int GSM_ConnectToTrioUpgradeServer(char *ip, char *port)
 
 
 	////Low Power/////
-	GSM_SendAt("AT+QGPCLASS=8", response, 100); // 1 Tx timeslots
+	//GSM_SendAt("AT+QGPCLASS=8", response, 100); // 1 Tx timeslots
+	GSM_SendAt("AT+QGPCLASS=12", response, 100); // 1 Tx timeslots
 //	TraceDumpHex( response, strlen(response) );
 	//GSM_SendAt("AT+CDETXPW=900,1,255,2", response, 100);
 	//////////////////
@@ -562,7 +561,7 @@ int GSM_SendToServerTCPTestST(char* msg) {
 int GSM_TCP_Send( unsigned char* msg, uint16_t len )
 {
 	char response[200];
-	char buffer[200];
+	char buffer[100];
 
 	TraceNL("Entered GSM_TCP_Send");
 
@@ -637,6 +636,10 @@ int GSM_InitModule() {
 
 //		TraceDumpHex( response, strlen(response) );
 		if (strstr(response, "OK") != NULL) {
+
+//			GSM_Set1152008N1( );
+//
+//			UARTInit(PORT_GSM, 115200);
 			GSM_SendAt("AT+CMEE=2", response, 500);
 //			TraceDumpHex( response, strlen(response) );
 			DelayMs(500);
@@ -765,6 +768,14 @@ void GSM_EchoOn( )
 	char response[100];
 	GSM_SendAt("ATE1", response, 500);
 	TraceNL("ECHO ON");
+}
+
+
+void GSM_Set1152008N1( )
+{
+	char response[100];
+	GSM_SendAt("AT+IPR=115200",response,100);
+	TraceNL("Setting GPS baud rate ");
 }
 
 

@@ -35,5 +35,6 @@ void	GSM_TCP_Close( void );
 void	GSM_EchoOFF( );
 void	GSM_EchoON( );
 int		GSM_SendToServerTCPTestST(char* msg);
+void GSM_Set1152008N1( );
 
 #endif /* GSM_H_ */
