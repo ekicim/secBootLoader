@@ -349,6 +349,7 @@ int XModem1K_Client(
 						sprintf( buffer, "Calculated Image CRC: 0x%X\r\n", calculatedCRC );
 						Trace( buffer );
 
+						WriteImageSignature( imageSize, (0xFFFF0000 | (0x0000FFFF & (uint32_t)imageCRC)) );
 
 					    // We should have completed the image reception now dump it to see if any problem.
 						// TraceDumpHex( SECONDARY_IMAGE_LOAD_ADDR, 20000 );
@@ -388,7 +389,7 @@ int XModem1K_Client(
 					u16CRC |= u8Data;
 
 					calculatedCRC = u16CRC_Calc16( &au8RxBuffer[0], u32PktLen );
-					sprintf( buffer, "calculaetd crc : 0x%X\r\n", calculatedCRC );
+					sprintf( buffer, "calculated CRC : 0x%X\r\n", calculatedCRC );
 				    TraceNL( buffer );
 
 					/* Check the received CRC against the CRC we generate on the packet data */
@@ -405,9 +406,8 @@ int XModem1K_Client(
 
 						TraceNL("Received a frame ");
 						TraceNL("Sending  ACK ");
-						TraceNL("CRC matches ");
+						TraceNL("CRC matches \r\n");
 						DelayMs( 100 );
-
 
 					} else /* Error CRC calculated does not match that received */
 					{

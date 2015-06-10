@@ -92,9 +92,28 @@ void 	ExecuteApplicationImage( unsigned int startAddress );
 ******************************************************************************/
 uint32_t	IsUpgradeRequested( void );
 
+/*****************************************************************************
+** Function name:	WriteImageSignature
+**
+** Description:		The function writes the image signature of and upgrade
+** 					image to the end of the image. Image validation procedure
+** 					checks the image validity using this information if the
+** 					CRC does not match. Upgrade is cancelled and primary image
+** 					is executed.
+**
+** Parameters:		address   address to write size and CRC
+** 					size      size in bytes of the image4
+** 					crc       16 bit CRC of the image
+**
+** Returned value:	none
+**
+******************************************************************************/
+
+void WriteImageSignature( uint32_t  size, uint32_t crc );
+
 
 static void DownloadSecondaryImage( void );
-
+static int32_t IsSecondaryImageValid( void );
 
 /**************************************************************************************************
  * LOCAL TYPES
@@ -559,26 +578,11 @@ int main(void) {
 		TraceNL("EEPROM Init Ok.");
 	}
 
-
-	uint16_t crc = u16CRC_Calc16("adssadsadsadsadsadsa", 20);
-
-	sprintf(buffer, "CRC of adssadsadsadsadsadsa is : = %d \r\n", crc);
 	Trace(buffer);
 	LoadParams();
-	unsigned long int lastGPSLedToggle = 0;
-	memset(buffer, 0xAA, sizeof(buffer));
-	//u32BootLoader_ProgramFlash(buffer,0x30000,16);
 	WDTFeed();
-	int is_sent = SUCCESS;
 
-	int is_last_speed_zero = 1;
-	int count ;
-
-	device_power_state = high_power_state;
-
-	/// TODO set a timer in order of update failure to return to older
-
-	TraceNL( "Initializing Server Connection" );
+	TraceNL( "Checking upgrade request" );
 
 	if( IsUpgradeRequested() )
 	{
@@ -589,7 +593,7 @@ int main(void) {
 			TraceNL( "Trial" );
 			/*
 			 * 	Initialize GSM module
-			 * 	Setup a server connection
+			 * 	Setup a server connection to update server
 			 *
 			 */
 
@@ -606,43 +610,23 @@ int main(void) {
 
 				WDTFeed( );
 				TraceNL( "Download finished " );
-				ExecuteApplicationImage( SECONDARY_IMAGE_LOAD_ADDR );
-
-				for ( count = 0; count < 100000000; count++)
-					if( count % 10000000 == 0)
-						TracePutc( '.' );
 			}
-			TraceNL( "Trial end" );
 		}
 		TraceNL( "Finished upgrading" );
 	}
 
-//	uint32_t imageAddr;
-//
-//	SystemInit();
-//	LPC_SC->CLKSRCSEL |= 0x01;//0x01;
-//	LPC_SC->PLL0CFG   |= 0x01; // Select external osc. as main clock.
-//	LPC_SC->CCLKCFG    = 0x03; // Main PLL is divided by 8
-//	SystemCoreClockUpdate();
-//
-//	UARTInit(PORT_TRACE, 115200);
-//
-//	TraceNL ("Bootloader is starting");
-//	TraceNL ("Checking application image's validity");
-//
-//	// Check to see if there is a user application in the LPC1768's flash memory.
-//	if( CheckApplicationImageValidity( &imageAddr ) )
-//	{
-//		ExecuteApplicationImage( imageAddr );
-//	}
-//
-//	TraceNL ("Unable to locate any valid image to run");
-//
-//	// Valid application does not exists. Get one from UART 0
-//	enter_serial_isp();
-//
-//	while ( 1 );	// assert should not get here
-//	return (0);
+	if( IsSecondaryImageValid() == SUCCESS )
+	{
+		TraceNL( "Booting SECONDARY image" );
+		ExecuteApplicationImage( SECONDARY_IMAGE_LOAD_ADDR );
+	}
+
+
+	TraceNL( "Booting PRIMARY image" );
+	WDTFeed( );
+	ExecuteApplicationImage( PRIMARY_IMAGE_LOAD_ADDR );
+
+	while ( 1L );
 }
 
 
@@ -766,9 +750,21 @@ int CheckApplicationImageValidity( uint32_t* pImageAddr )
 ******************************************************************************/
 uint32_t	IsUpgradeRequested( void )
 {
-	// TODO for test purposes allways upgrade requested later change
-	if( (*( (uint32_t *) UPGRADE_PARAMETERS_ADDR) ) == 0xFFFFFFFF )
+	if( (*( (uint32_t *)UPGRADE_PARAMETERS_ADDR) ) != 0xFFFFFFFF )
 	{
+		char buffer[100];
+		char * port ;
+		strcpy( update_service_ip, UPGRADE_PARAMETERS_ADDR );
+
+		port = strchr( UPGRADE_PARAMETERS_ADDR, '\0' );
+		port++;
+		strcpy( update_service_port, port);
+
+		sprintf(buffer,"Update parameters %s:%s", update_service_ip, update_service_port);
+		TraceNL( buffer );
+
+		u32IAP_PrepareSectors( UPGRADE_PARAMETERS_SEC, UPGRADE_PARAMETERS_SEC );
+		u32IAP_EraseSectors( UPGRADE_PARAMETERS_SEC, UPGRADE_PARAMETERS_SEC );
 		return TRUE;
 	}
 
@@ -932,3 +928,93 @@ static uint32_t load_image(uint8_t *data, uint16_t length){
 
 	return (0);
 }
+
+
+/*****************************************************************************
+** Function name:	WriteImageSignature
+**
+** Description:		The function writes the image signature of and upgrade
+** 					image to the end of the image. Image validation procedure
+** 					checks the image validity using this information if the
+** 					CRC does not match. Upgrade is cancelled and primary image
+** 					is executed.
+**
+** Parameters:		address   address to write size and CRC
+** 					size      size in bytes of the image4
+** 					crc       16 bit CRC of the image
+**
+** Returned value:	none
+**
+******************************************************************************/
+
+void WriteImageSignature( uint32_t  size, uint32_t crc )
+{
+
+	char buffer[250];
+	uint32_t rc;
+	int i;
+
+	char* startAddr = (char *)(SECONDARY_IMAGE_END_ADDR - 1024);
+
+
+	sprintf(buffer, "Writing signature: 0x%X   CRC : %X\r\n", size, crc);
+	Trace( buffer );
+
+	for( i = 0; i < 1024; i++ )
+	{
+		flashWriteBuffer[i++] = *startAddr++;
+	}
+
+	uint32_t* ptrCRC = &flashWriteBuffer[ 1024 - 4 ];
+	*ptrCRC		= crc;
+
+	uint32_t* ptrSize = &flashWriteBuffer[ 1024 - 8 ];
+	*ptrSize	= size;
+
+	if (u32IAP_PrepareSectors(SECONDARY_IMAGE_END_SEC,
+			SECONDARY_IMAGE_END_SEC) == IAP_STA_CMD_SUCCESS)
+	{
+		TraceNL("prepared ");
+		u32IAP_EraseSectors( SECONDARY_IMAGE_END_SEC, SECONDARY_IMAGE_END_SEC );
+		TraceNL("Erased ");
+
+		u32IAP_PrepareSectors(SECONDARY_IMAGE_END_SEC,
+					SECONDARY_IMAGE_END_SEC);
+		rc = u32IAP_CopyRAMToFlash((SECONDARY_IMAGE_END_ADDR - 1024),
+				(uint32_t) flashWriteBuffer, 1024);
+
+		sprintf(buffer, "Copy Ram result code : %d\r\n", rc);
+		TraceNL(buffer);
+		/*	Copy data (already) located in RAM to flash */
+		if (rc == IAP_STA_CMD_SUCCESS) {
+			TraceNL("copied ");
+		}
+	}
+
+	return;
+}
+
+
+static int32_t IsSecondaryImageValid( void )
+{
+	char buffer[100];
+
+	uint32_t size = *(uint32_t *)(SECONDARY_IMAGE_END_ADDR - 8);
+
+	uint16_t crc  = *(uint16_t *)(SECONDARY_IMAGE_END_ADDR - 4);
+
+	sprintf(buffer, "Signature: 0x%X   CRC : %X\r\n", size, crc);
+	Trace( buffer );
+
+	uint16_t calculatedCRC = u16CRC_Calc16( SECONDARY_IMAGE_LOAD_ADDR, size );
+
+	sprintf( buffer, "Calculated Image CRC: 0x%X\r\n", calculatedCRC );
+	Trace( buffer );
+
+	if( crc == calculatedCRC )
+		return ( 0 );  // image is valid
+
+	return ( 1 );  //image is not valid
+}
+
+
