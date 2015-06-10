@@ -14,6 +14,7 @@
 
 #include <bsp.h>
 #include <stdint.h>
+#include <string.h>
 #include <stdio.h>
 #include "iap_config.h"
 #include "xmodem1k.h"
@@ -29,6 +30,7 @@
 #include "calibration.h"
 #include "gps.h"
 #include "trace.h"
+#include "crc.h"
 
 #ifdef __USE_CMSIS
 #include "LPC17xx.h"
@@ -49,7 +51,6 @@
 /**************************************************************************************************
  * FUNCTIONS - API
  **************************************************************************************************/
-
 
 /*****************************************************************************
 ** Function name:	CheckApplicationImageValidity
@@ -108,28 +109,138 @@ uint32_t	IsUpgradeRequested( void );
 ** Returned value:	none
 **
 ******************************************************************************/
-
 void WriteImageSignature( uint32_t  size, uint32_t crc );
 
+/**************************************************************************************************
+ * LOCAL FUNCTIONS
+ **************************************************************************************************/
+/*****************************************************************************
+** Function name:	DownloadSecondaryImage
+**
+** Description:		The function erases flash sectors
+** 					SECONDARY_IMAGE_START_SEC up to SECONDARY_IMAGE_END_SEC.
+**					Starts downloading image using a modified version of
+**					xmodem1k protocol.
+**					look for description of XModem1K_Client function for
+**					the details of modified xmodem1k protocol.
+**
+** Parameters:		none
+** Returned value:	none
+**
+******************************************************************************/
+static void		DownloadSecondaryImage( void );
 
-static void DownloadSecondaryImage( void );
-static int32_t IsSecondaryImageValid( void );
+/*****************************************************************************
+** Function name:	IsSecondaryImageValid
+**
+** Description:		The function checks sanity of the secondary image using
+** 		provided image size and CRC
+**
+** 		Memory  layout
+**
+** 		*********************** 0x0000 0000
+**
+** 		bootrom image
+**
+** 		**********************  0x0000 FC00
+**
+** 		Update request parameters. Last one kilo bytes of the bootrom image
+** 		area is used to communicate upgrade parameters between bootrom and
+** 		application images. For now only upgrade server ip and port in
+** 		in ASCII string is used. Remaining part is reserved for future use.
+**
+** 		**********************  0x0001 0000
+**
+** 		Primary image
+**
+** 		**********************  0x0004 0000
+**
+** 		Secondary image
+**
+** 		The last 8 bytes of the secondary image is used to place image size
+** 		and CRC.
+** 		**********************  0x0006 FFF8
+** 		4 bytes size of the image. This size is on fly size. May be greater
+** 		than the actual file size of the image ondisk. Modified xmodem1k
+** 		protocol appends 0xFFs to the last frame of the image if it is less
+** 		than 1024 bytes. CRC is also calculated using this size instead of
+** 		on disk size of the image.
+** 		**********************  0x0006 FFFC
+** 		CRC 16 bit crc is used and it is ored 0xFFFF0000. We have used 32 bits
+** 		because there is a possibility of using 32bit CRC in the future
+**
+** 	    **********************  0x0007 0000
+**
+** 	    unused memory area
+**
+** 	    **********************  0x0008 0000
+**
+**
+** Parameters:		none
+** Returned value:	none
+**
+******************************************************************************/
+static int32_t	IsSecondaryImageValid( void );
+
+/*****************************************************************************
+** Function name:	IsSecondaryImageValid
+**
+** Description:		The function checks sanity of the secondary image using
+** 		provided image size and CRC
+**
+** 		Memory  layout
+**
+** 		*********************** 0x0000 0000
+**
+** 		bootrom image
+**
+** 		**********************  0x0000 FC00
+**
+** 		Update request parameters. Last one kilo bytes of the bootrom image
+** 		area is used to communicate upgrade parameters between bootrom and
+** 		application images. For now only upgrade server ip and port in
+** 		in ASCII string is used. Remaining part is reserved for future use.
+**
+** 		**********************  0x0001 0000
+**
+** 		Primary image
+**
+** 		**********************  0x0004 0000
+**
+** 		Secondary image
+**
+** 		The last 8 bytes of the secondary image is used to place image size
+** 		and CRC.
+** 		**********************  0x0006 FFF8
+** 		4 bytes size of the image. This size is on fly size. May be greater
+** 		than the actual file size of the image ondisk. Modified xmodem1k
+** 		protocol appends 0xFFs to the last frame of the image if it is less
+** 		than 1024 bytes. CRC is also calculated using this size instead of
+** 		on disk size of the image.
+** 		**********************  0x0006 FFFC
+** 		CRC 16 bit crc is used and it is ored 0xFFFF0000. We have used 32 bits
+** 		because there is a possibility of using 32bit CRC in the future
+**
+** 	    **********************  0x0007 0000
+**
+** 	    unused memory area
+**
+** 	    **********************  0x0008 0000
+**
+**
+** Parameters:		none
+** Returned value:	none zero write success
+**                  zero      write failure
+**
+******************************************************************************/
+static uint32_t loadImage( uint8_t *data, uint16_t length );
+
 
 /**************************************************************************************************
  * LOCAL TYPES
  **************************************************************************************************/
-enum DOWNLOAD_STATES
-{
-	INIT 	= 0,
-	DOWNLOADING,
-	FINISHED
-};
 
 
-
-
-
-#define FLASH_SECTOR_SIZE	1024
 
 /**************************************************************************************************
  * LOCAL VARIABLES
@@ -138,25 +249,10 @@ static uint8_t flashWriteBuffer[FLASH_SECTOR_SIZE] __attribute__ ((aligned(4)));
 static uint32_t flashWriteIndex = 0;
 
 /*	Function Prototype */
-static uint32_t load_image(uint8_t *data, uint16_t length);
 
-
-/*	Character array workspace for GLCD print functions */
-#define MAX_STRING_SIZE		50
-static uint8_t string[MAX_STRING_SIZE];
+// keeps the image index during image download
 static uint32_t received_data = 0;
 
-
-enum state_machine {
-	READY = 0,
-	MENU,
-	ERASE_FLASH,
-	FLASH_IMG,
-	SHOW
-};
-enum state_machine	 cmd;
-
-void enter_serial_isp( void );
 int CheckApplicationImageValidity( uint32_t* pImageAddr );
 
 
@@ -553,63 +649,62 @@ int InitializeServerConn() {
 	return is_conn;
 }
 
-int main(void) {
+int main(void)
+{
 	char buffer[200];
-	device_power_state = high_power_state;
+
 	SystemInit();
+
 	LPC_SC->CLKSRCSEL |= 0x01;//0x01;
-	LPC_SC->PLL0CFG |= 0x01; // Select external osc. as main clock.
-	LPC_SC->CCLKCFG = 0x03; // Main PLL is divided by 8
+	LPC_SC->PLL0CFG	  |= 0x01; // Select external osc. as main clock.
+	LPC_SC->CCLKCFG	   = 0x03; // Main PLL is divided by 8
+
 	SystemCoreClockUpdate();
-	SysTick_Config(SystemCoreClock / 1000 - 1); // Generate f each 1 ms, used to enable DelayMs function?
+	// Generate f each 1 ms, used to enable DelayMs function?
+	SysTick_Config(SystemCoreClock / 1000 - 1);
+
 	WDTInit(WDT_FEED_30_SECS);
 
 	ConfigurePins();
-	UARTInit(PORT_TRACE, 115200);
-	UARTInit(PORT_GSM, 115200);
-	UARTInit(PORT_GPS, Baudrate);
-	TraceNL("Hello P65 20150520.");
-	sprintf(buffer, "SystemCoreClock = %d Hz\n", SystemCoreClock);
-	//UARTSend(PORT_TRACE, buffer, count);
+
+	UARTInit( PORT_TRACE, 115200 );
+	UARTInit( PORT_GSM,   115200 );
+	UARTInit( PORT_GPS,   Baudrate );
+
+	TraceNL("\r\nBooting up");
+	sprintf(buffer, "SystemCoreClock = %d Hz\r\n", SystemCoreClock);
 	Trace(buffer);
-	if (EEPROM_Init() == 0) /* initialize I2c */{
-		TraceNL("EEPROM Init Error."); /* Fatal error */
+
+	if( EEPROM_Init() == 0 )
+	{
+		TraceNL("EEPROM Initialization failed.");
 	} else {
-		TraceNL("EEPROM Init Ok.");
+		TraceNL("EEPROM Initialized.");
 	}
 
-	Trace(buffer);
-	LoadParams();
 	WDTFeed();
+	LoadParams();
 
 	TraceNL( "Checking upgrade request" );
 
 	if( IsUpgradeRequested() )
 	{
 		TraceNL( "System image upgrade requested" );
-		int8_t 	trials = 1;
+		int8_t 	trials = 3;
 		while( trials-- > 0 )
 		{
-			TraceNL( "Trial" );
 			/*
 			 * 	Initialize GSM module
 			 * 	Setup a server connection to update server
-			 *
 			 */
-
-			// InitializeServerConn();
 			if( GSM_ConnectToTrioUpgradeServer() == SUCCESS )
 			{
 				TraceNL( "Server Connection Established to Upgrade server" );
-
-				//GSM_SendToServerTCP( "[ST;70;r2246;P65-20150204-1;;HELLO]" );
-
 				WDTFeed( );
-
 				DownloadSecondaryImage();
-
 				WDTFeed( );
 				TraceNL( "Download finished " );
+				break;
 			}
 		}
 		TraceNL( "Finished upgrading" );
@@ -621,7 +716,6 @@ int main(void) {
 		ExecuteApplicationImage( SECONDARY_IMAGE_LOAD_ADDR );
 	}
 
-
 	TraceNL( "Booting PRIMARY image" );
 	WDTFeed( );
 	ExecuteApplicationImage( PRIMARY_IMAGE_LOAD_ADDR );
@@ -629,110 +723,6 @@ int main(void) {
 	while ( 1L );
 }
 
-
-/*****************************************************************************
-** Function name:	CheckApplicationImageValidity
-**
-** Description:		Check application images for validity.
-**
-** Parameters:		none
-**
-** Returned value:	TRUE if application is valid
-** 					FALSE   not valid
-**
-******************************************************************************/
-int CheckApplicationImageValidity( uint32_t* pImageAddr )
-{
-	uint32_t	result, reason;
-	uint32_t 	priImageVer = 0;
-	uint32_t 	secImageVer = 0;
-	unsigned char isPriBlank  = FALSE;
-	unsigned char isSecBlank  = FALSE;
-	unsigned char isPriValid  = FALSE;
-	unsigned char isSecValid  = FALSE;
-
-	char buffer[200];
-	int count;
-
-
-	result = u32IAP_BlankCheckSectors( PRIMARY_IMAGE_START_SEC,
-								       PRIMARY_IMAGE_START_SEC, &reason );
-	if( result != IAP_STA_SECTOR_NOT_BLANK )
-	{
-		isPriBlank = TRUE;
-	}
-
-	result = u32IAP_BlankCheckSectors( SECONDARY_IMAGE_START_SEC,
-			                           SECONDARY_IMAGE_START_SEC, &reason );
-	if( result != IAP_STA_SECTOR_NOT_BLANK )
-	{
-		isSecBlank = TRUE;
-	}
-
-	// check versions
-	priImageVer	= *( (uint32_t *) (PRIMARY_IMAGE_LOAD_ADDR   + IMAGE_VERSION_OFFSET) );
-	secImageVer	= *( (uint32_t *) (SECONDARY_IMAGE_LOAD_ADDR + IMAGE_VERSION_OFFSET) );
-
-
-	// size of the image is placed in an image at offset IMAGE_SIZE_OFFSET and when an
-	// image is flashed to validate the image the image size is written to
-
-	if( !isPriBlank || (priImageVer != 0xFFFFFFFF) )
-	{
-		/* validation for the primary is only check against 0xFFFFFFFF */
-		if( (*( (uint32_t *) (PRIMARY_IMAGE_LOAD_ADDR + IMAGE_SIZE_OFFSET))) != 0xFFFFFFFF )
-			// (*( (uint32_t *) (PRIMARY_IMAGE_LOAD_ADDR + IMAGE_SIZE_CHECK_OFFSET))) )
-				isPriValid = TRUE;
-
-		sprintf(buffer,"Primary Image sizes (0x%X == 0x%X)\r",
-				*( (uint32_t *) (PRIMARY_IMAGE_LOAD_ADDR + IMAGE_SIZE_OFFSET)),
-				*( (uint32_t *) (PRIMARY_IMAGE_LOAD_ADDR + IMAGE_SIZE_CHECK_OFFSET))
-						);
-		TraceNL(buffer);
-	}
-
-	if( !isSecBlank || (secImageVer != 0xFFFFFFFF) )
-	{
-		count = sprintf(buffer,"Secondary Image sizes (0x%X == 0x%X)\r",
-				*( (uint32_t *) (SECONDARY_IMAGE_LOAD_ADDR + IMAGE_SIZE_OFFSET)),
-				*( (uint32_t *) (SECONDARY_IMAGE_LOAD_ADDR + IMAGE_SIZE_CHECK_OFFSET))
-						);
-		TraceNL(buffer);
-		/* if size is the same for both offsets, the image is valid */
-		if( (*( (uint32_t *) (SECONDARY_IMAGE_LOAD_ADDR + IMAGE_SIZE_OFFSET))) ==
-			(*( (uint32_t *) (SECONDARY_IMAGE_LOAD_ADDR + IMAGE_SIZE_CHECK_OFFSET))) )
-				isSecValid = TRUE;
-	}
-
-	// Both images are not valid so return
-	if( !isPriValid && !isSecValid )
-	{
-		TraceNL ("Both images are invalid");
-		*pImageAddr = 0;
-		return ( FALSE );
-	}
-	count = sprintf(buffer,"Primary Image version = 0x%X\r", priImageVer );
-	TraceNL (buffer);
-
-	count = sprintf(buffer,"Secondary Image version = 0x%X\r", secImageVer );
-	TraceNL (buffer);
-
-	TraceNL ("Checking CRC");
-	for ( count = 0; count < 100000000; count++)
-		if( count % 1000000 == 0)
-			TracePutc( '.' );
-
-	count = sprintf(buffer,"Primary Image type = %d, version = 0x%02X\r",
-			                                (priImageVer & 0xFF000000) >> 24,
-											(priImageVer & 0x000000FF));
-	TraceNL( buffer );
-
-	sprintf(buffer,"Secondary Image type = %d, version = 0x%02X\r",
-			                                (secImageVer & 0xFF000000) >> 24,
-											(secImageVer & 0x000000FF));
-	TraceNL( buffer );
-	return ( TRUE );
-}
 /*****************************************************************************
 ** Function name:	IsUpgradeRequested
 **
@@ -810,18 +800,10 @@ void DownloadSecondaryImage( void )
 
 	TraceNL( "Starting download" );
 	/*	Store a new image into flash */
-	XModem1K_Client( &load_image );
+	XModem1K_Client( &loadImage );
 
 
 }
-
-
-
-
-void enter_serial_isp( void ) {
-
-}
-
 
 void ExecuteApplicationImage( unsigned int startAddress )
 {
@@ -846,12 +828,11 @@ void ExecuteApplicationImage( unsigned int startAddress )
     user_code_entry();
 }
 
-static uint32_t load_image(uint8_t *data, uint16_t length){
-
+static uint32_t loadImage( uint8_t *data, uint16_t length )
+{
 	char buffer[250];
 	uint32_t rc;
 	int i;
-
 
 	sprintf(buffer, "Totally received : %d   frame length : %d\r\n", received_data, length);
 	Trace( buffer );
@@ -861,7 +842,6 @@ static uint32_t load_image(uint8_t *data, uint16_t length){
 		// Finished and all previous data has been written
 		return ( 2 ); // return non zero to indicate success
 	}
-
 
 	for( i = 0; i < length; i++ )
 	{
@@ -900,27 +880,21 @@ static uint32_t load_image(uint8_t *data, uint16_t length){
 				Trace( buffer );
 
 				/*	Verify the flash contents with the contents in RAM */
-				if (rc == IAP_STA_CMD_SUCCESS) {
+				if (rc == IAP_STA_CMD_SUCCESS)
+				{
 					/*	Update and Print Received bytes counter */
 					received_data += flashWriteIndex;
-					//snprintf((char *)string, MAX_STRING_SIZE, "Received %d of %d bytes", received_data, BMP->bmp_size);
-					TraceNL( "verified " );
-
 					flashWriteIndex = 0;
+
+					TraceNL( "verified " );
 					return (1);
 				} else {
 					int count;
-					TraceDumpHex( SECONDARY_IMAGE_LOAD_ADDR + received_data, flashWriteIndex);
+					TraceDumpHex( SECONDARY_IMAGE_LOAD_ADDR + received_data, flashWriteIndex );
 
 					received_data += flashWriteIndex;
-					//snprintf((char *)string, MAX_STRING_SIZE, "Received %d of %d bytes", received_data, BMP->bmp_size);
-					TraceNL( "verification failed " );
-
-					for ( count = 0; count < 100000000; count++)
-						if( count % 10000000 == 0)
-							TracePutc( '.' );
-
 					flashWriteIndex = 0;
+					TraceNL( "verification failed " );
 				}
 			}
 		}

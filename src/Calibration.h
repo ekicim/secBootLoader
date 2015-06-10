@@ -53,5 +53,5 @@ void EEPROM_LoadString(Calibration cal, char* str);
 uint8_t EEPROM_SaveInt64(Calibration cal, uint64_t val);
 uint8_t EEPROM_SaveString(Calibration cal, const char* str);
 void EEPROM_EraseMemory(Calibration cal);
-
+uint8_t EEPROM_Init();
 #endif /* CALIBRATION_H_ */

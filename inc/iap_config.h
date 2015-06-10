@@ -18,6 +18,9 @@
  */
 #define IMAGE_CRC_OFFSET				0x0002FFFC
 
+// This is not hardware sector size. it is write
+// amount
+#define FLASH_SECTOR_SIZE			1024
 
 /* version information is placed at offset */
 #define IMAGE_VERSION_OFFSET		0x000002f8
@@ -37,7 +40,7 @@
 #define UPGRADE_PARAMETERS_SEC		15
 #define UPGRADE_PARAMETERS_ADDR		( PRIMARY_IMAGE_LOAD_ADDR - 1024 )
 
-#define FLASH_BUF_SIZE		512
+
 #define USER_FLASH_START	(sector_start_map[USER_START_SECTOR])
 #define USER_FLASH_END		(sector_end_map[MAX_USER_SECTOR])
 #define USER_FLASH_SIZE		((USER_FLASH_END - USER_FLASH_START) + 1)

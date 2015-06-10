@@ -138,7 +138,7 @@ void GSM_SendSMS() {
 }
 
 
-int GSM_ConnectToTrioUpgradeServer(char *ip, char *port)
+int GSM_ConnectToTrioUpgradeServer( void )
 {
 	char buffer[200];
 	char response[150];
@@ -157,7 +157,7 @@ int GSM_ConnectToTrioUpgradeServer(char *ip, char *port)
 	if(init_result == FAIL)
 		return ( init_result );
 
-	GSM_EchoOFF();
+	//GSM_EchoOFF();
 	GSM_GetImei();
 	GSM_GetImsi(); //
 	int conn_stat = GSM_GetRegStat();
@@ -202,8 +202,8 @@ int GSM_ConnectToTrioUpgradeServer(char *ip, char *port)
 	//////////////////
 	GSM_SendAt("AT",response,100);
 
-	strcpy( update_service_ip, "46.4.100.168" );
-	strcpy( update_service_port, "5007" );
+//	strcpy( update_service_ip, "46.4.100.168" );
+//	strcpy( update_service_port, "5007" );
 
 	int cmd_count = sprintf( buffer, "AT+QIOPEN=\"TCP\",\"%s\",%s\r\n", update_service_ip, update_service_port );
 	//GSM_SendAt("AT+QIOPEN=\"TCP\",\"178.63.30.80\",6081", response, 2000);
@@ -371,44 +371,6 @@ int GSM_SendToServerTCP(char* msg) {
 		int sendOkCheck = 0;
 		while (strstr(response,"SEND OK") == NULL){
 			TraceNL("Send OK whiling..");
-			if (sendOkCheck > 20)
-				return FAIL;
-			DelayMs(100);
-			ReadUart(response, PORT_GSM);
-			sendOkCheck++;
-		}
-		TraceNL("Data sent.");
-		return SUCCESS;
-	}
-	else if (strstr(response, "ERROR") != NULL) {
-		TraceNL("Data fail.");
-		return FAIL;
-	}
-	TraceNL("Data fail.");
-	return FAIL;
-}
-
-
-
-// Test message is sent using ST message
-int GSM_SendToServerTCPTestST(char* msg) {
-	TraceNL("Entered GSM_SendToServerTCP");
-	char response[500];
-	char buffer[500];
-	char anotherBuf[500];
-	sprintf(anotherBuf, "[ST;%s70;r2246;P65-20570204-1;%s;%s]", imei, imsi, msg);
-	GSM_SendAt("AT", response, 100); //Empty buffer
-	int count = sprintf(buffer, "AT+QISEND=%d", strlen(anotherBuf));
-	GSM_SendAt(buffer, response, 100);
-
-	if (strchr(response, '>') != NULL) {
-
-		UARTSend(PORT_GSM, anotherBuf, strlen(anotherBuf));
-		DelayMs(300);
-		ReadUart(response, PORT_GSM);
-		int sendOkCheck = 0;
-		while (strstr(response,"SEND OK") == NULL){
-			TraceDumpHex( response );
 			if (sendOkCheck > 20)
 				return FAIL;
 			DelayMs(100);
