@@ -7,7 +7,6 @@ C_SRCS += \
 ../src/Calibration.c \
 ../src/GPS.c \
 ../src/GSM.c \
-../src/Utils.c \
 ../src/cr_startup_lpc175x_6x.c \
 ../src/crc.c \
 ../src/crp.c \
@@ -24,7 +23,6 @@ OBJS += \
 ./src/Calibration.o \
 ./src/GPS.o \
 ./src/GSM.o \
-./src/Utils.o \
 ./src/cr_startup_lpc175x_6x.o \
 ./src/crc.o \
 ./src/crp.o \
@@ -41,7 +39,6 @@ C_DEPS += \
 ./src/Calibration.d \
 ./src/GPS.d \
 ./src/GSM.d \
-./src/Utils.d \
 ./src/cr_startup_lpc175x_6x.d \
 ./src/crc.d \
 ./src/crp.d \

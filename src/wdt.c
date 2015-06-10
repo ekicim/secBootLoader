@@ -66,6 +66,7 @@ uint32_t WDTInit_RTC() {
 	//WDT_SetTimeOutRTC(300 * 1000 * 1000);
 	LPC_WDT->WDMOD = 0x3;
 	//WDTFeed();
+	return (0);
 }
 
 uint32_t WDTInit(uint32_t feed) {
@@ -76,6 +77,7 @@ uint32_t WDTInit(uint32_t feed) {
 	LPC_WDT->WDTC = feed; /* once WDEN is set, the WDT will start after feeding */
 	LPC_WDT->WDMOD = 0x3;
 	WDTFeed();
+	return (0);
 }
 /********************************************************************//**
  * @brief                 Set WDT time out value and WDT mode
@@ -83,7 +85,8 @@ uint32_t WDTInit(uint32_t feed) {
  * @param[in]        timeout value of time-out for WDT (us)
  * @return                None
  *********************************************************************/
-uint8_t WDT_SetTimeOutRTC(uint32_t timeout_ms) {
+uint8_t WDT_SetTimeOutRTC(uint32_t timeout_ms)
+{
 	timeout_ms = timeout_ms * 250;
 	uint32_t pclk_wdt = 0;
 	uint32_t tempval = 0;
@@ -95,8 +98,9 @@ uint8_t WDT_SetTimeOutRTC(uint32_t timeout_ms) {
 	if ((tempval >= WDT_TIMEOUT_MIN) && (tempval <= WDT_TIMEOUT_MAX)) {
 		LPC_WDT->WDTC = (uint32_t) tempval;
 		WDTFeed();
-		return 1;
+		return (1);
 	}
+	return (0);
 }
 
 /*****************************************************************************

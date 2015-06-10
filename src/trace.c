@@ -1,30 +1,29 @@
 #include <bsp.h>
 #include <uart.h>
 #include <string.h>
+#include <stdio.h>
 #include <trace.h>
 
 
 void Trace( char* msg)
 {
-
-	UARTSend(PORT_TRACE, (unsigned char*)msg, strlen(msg));
-
+	UARTSend( PORT_TRACE, msg, strlen(msg) );
 }
 
 void TraceNL( char* msg)
 {
-	UARTSend(PORT_TRACE, (unsigned char*)msg, strlen(msg));
-	UARTSend(PORT_TRACE, (unsigned char*)"\r\n", 2);
+	UARTSend(PORT_TRACE, msg, strlen(msg));
+	UARTSend(PORT_TRACE, "\r\n", 2);
 }
 
 void TracePutc( char c )
 {
-	UARTSend(PORT_TRACE, (unsigned char*)&c, 1L);
+	UARTSend(PORT_TRACE, &c, 1L);
 }
 
 void TracePutcHex( char c )
 {
-	unsigned char  buff[10];
+	char  buff[10];
     int count;
 	count = sprintf( buff, "%02x", c);
 	UARTSend( PORT_TRACE, buff, count );
@@ -37,9 +36,9 @@ void TraceDumpHex( char* pMsg, int len )
 #if defined (BOOTROM_DEBUG)
 
 	int i, count;
-	unsigned char buffer[300];
-	unsigned char buff[17];
-	unsigned char *pc = (unsigned char*) pMsg;
+	char buffer[300];
+	char buff[17];
+	char *pc = pMsg;
 
 	UARTSend( PORT_TRACE, "\r\n", 2);
 	// Process every byte in the data.

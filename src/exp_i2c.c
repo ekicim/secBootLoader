@@ -8,6 +8,7 @@
  *   2009.05.26  ver 1.00    Prelimnary version, first Release
  *
  *****************************************************************************/
+#include <bsp.h>
 #include "lpc17xx.h"
 #include "exp_i2c.h"
 
@@ -357,6 +358,7 @@ uint32_t I2CInit(uint8_t port,uint32_t I2cMode) {
 		LPC_I2C1->I2CONSET = I2CONSET_I2EN;
 		return (1);
 	}
+	return (0);
 }
 
 /*****************************************************************************
@@ -483,6 +485,7 @@ uint8_t i2c_read(uint8_t port, uint8_t register_addr) {
 		I2CStop(port);
 		return (I2C1_MasterBuffer[3]);
 	}
+	return (0);
 }
 
 /******************************************************************************

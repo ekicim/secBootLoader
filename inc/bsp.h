@@ -17,4 +17,7 @@
 #define FAIL 			(-1)
 #define SUCCESS 		(0)
 
+
+#define BUFSIZE		(256)
+
 #endif /* BSP_H_ */

@@ -8,7 +8,7 @@
 
 #include "GSM.h"
 #include "uart.h"
-#include "Utils.h"
+
 #include "Calibration.h"
 #include "LPC17xx.h"
 
@@ -21,27 +21,12 @@
 
 #include "timer.h"
 
-unsigned long int last_hard_reset = -1;
-int connectionFailCount = 0;
-#define LBS 1
+static unsigned long int last_hard_reset = -1;
+static int connectionFailCount = 0;
+
 
 uint16_t GSM_SendAt( char* cmd, char *response, int delay )
 {
-
-//	char buffer[1000];
-//	int count = sprintf(buffer, "%s\r", cmd);
-//	UARTSend(PORT_GSM, buffer, count);
-//	DelayMs(delay);
-//	int len2 = ReadUart(response, PORT_GSM);
-//
-//	count = sprintf(buffer, "\n--> %s \n", cmd);
-//	UARTSend(PORT_TRACE, buffer, count);
-//	//Trace(buffer);
-//	/*if (len2 > 0 && strstr(response, "+QI") != NULL) {
-//				TraceNL("+QIRD Incoming Data");
-//				GSM_SendAt("AT+QIRD=1",response,500);
-//	}*/
-
 	char buffer[100];
 	uint16_t	len;
 
@@ -56,87 +41,13 @@ uint16_t GSM_SendAt( char* cmd, char *response, int delay )
 	len = ReadUart( response, PORT_GSM );
 	response[len] = '\0';
 
-	// TraceDumpHex( response, len );
-
     return ( len );
 }
-
-
 
 int16_t GSM_TCP_Recv( char* pDataBuf, int16_t maxBytes )
 {
 	return ( GSM_SendAt( "AT+QIRD=1,1,0,1100", pDataBuf, 1000 ) );
 }
-
-void GSM_CheckBuffer() {
-	Trace("Entered CheckGSMBuffer");
-	char response[500];
-	char msg_from_server[300];
-	GSM_SendAt("AT+QIRD=1,1,0,300",response,100);
-	int index = 0;
-	int i = 0;
-	char* p_set = strstr(response, "#SET;");
-	if (p_set == NULL)
-		return;
-	if (p_set != NULL){
-		for (i=0; i < strlen(p_set); i++) {
-			msg_from_server[index] = p_set[i];
-			index++;
-			if (p_set[i] == '\r')
-				break;
-		}
-		msg_from_server[index] = '\0';
-	}
-	if (strlen(msg_from_server) > 5){
-		Trace("Message From Server : ");
-		TraceNL(msg_from_server);
-		ChangeConfiguration(msg_from_server,1);
-		//#SET;04;1;30;30;0!
-		//#SET -imei-
-	}
-}
-
-void GSM_ReadSMS(){
-	//Read Index 1, Delete All.
-	//AT+CMGR=<index>,0
-	//AT+CMGD=1,4 //Delete All SMS Messages.
-	int lf_count = 0;
-	int index = 0;
-	int i = 0;
-	TraceNL("Entered read sms.");
-	char response[1000];
-	char msg_from_sms[500];
-	GSM_SendAt("AT",response,100);
-	GSM_SendAt("AT+CMGR=1", response, 500);
-	char* p_set = strstr(response, "#SET;");
-	if (p_set != NULL){
-		for (i=0; i < strlen(p_set); i++) {
-				msg_from_sms[index] = p_set[i];
-				index++;
-				if (p_set[i] == '\r')
-					break;
-		}
-		msg_from_sms[index] = '\0';
-	}
-	GSM_SendAt("AT+CMGD=1,4", response, 100);
-	// Delete All SMS
-	if (strlen(msg_from_sms) > 5){
-		Trace("Message From SMS : ");
-		TraceNL(msg_from_sms);
-		ChangeConfiguration(msg_from_sms);
-	}
-}
-
-void GSM_SendSMS() {
-	/*
-	AT+CMGF=1
-	OK
-	AT+CMGS="+31628870634"
-	> This is the text message.→
-	+CMGS: 198
-	OK*/
-}
-
 
 int GSM_ConnectToTrioUpgradeServer( void )
 {
@@ -154,13 +65,13 @@ int GSM_ConnectToTrioUpgradeServer( void )
 
 	WDTFeed();
 
-	if(init_result == FAIL)
+	if( init_result == FAIL )
 		return ( init_result );
 
 	//GSM_EchoOFF();
 	GSM_GetImei();
-	GSM_GetImsi(); //
-	int conn_stat = GSM_GetRegStat();
+	GSM_GetImsi();
+	GSM_GetRegStat();
 
 	GSM_SendAt("ATI", response, 500);
 	WDTFeed();
@@ -179,12 +90,7 @@ int GSM_ConnectToTrioUpgradeServer( void )
 	GSM_SendAt("AT+QINDI=0", response, 100);    //  disable indicator
 	GSM_SendAt("AT+QIHEAD=1", response, 100);    //
 
-	//GSM_SendAt("AT+QIMODE=1", response, 100); //Transparent Mode
 	GSM_SendAt("AT+QIMODE=0", response, 100);   //Non Transparent Mode
-	//GSM_SendAt("AT+QINDI=1", response, 100);  //Alert when data received.
-
-
-	//GSM_SendAt("AT+QITCFG=3,1,512,1", response, 500); //Transparent mode configuration
 
 	memset(buffer, 0, sizeof(buffer));
 	if (isalpha(per_ip_val[0])){ //DNS
@@ -193,25 +99,13 @@ int GSM_ConnectToTrioUpgradeServer( void )
 	}else
 		GSM_SendAt("AT+QIDNSIP=0", response, 100);
 
-
-	////Low Power/////
-	//GSM_SendAt("AT+QGPCLASS=8", response, 100); // 1 Tx timeslots
-	GSM_SendAt("AT+QGPCLASS=12", response, 100); // 1 Tx timeslots
-//	TraceDumpHex( response, strlen(response) );
-	//GSM_SendAt("AT+CDETXPW=900,1,255,2", response, 100);
-	//////////////////
+	GSM_SendAt("AT+QGPCLASS=12", response, 100);
 	GSM_SendAt("AT",response,100);
 
-//	strcpy( update_service_ip, "46.4.100.168" );
-//	strcpy( update_service_port, "5007" );
-
-	int cmd_count = sprintf( buffer, "AT+QIOPEN=\"TCP\",\"%s\",%s\r\n", update_service_ip, update_service_port );
-	//GSM_SendAt("AT+QIOPEN=\"TCP\",\"178.63.30.80\",6081", response, 2000);
+	sprintf( buffer, "AT+QIOPEN=\"TCP\",\"%s\",%s\r\n", update_service_ip, update_service_port );
 
 	GSM_SendAt( buffer, response, 100);
-	//UARTSend(PORT_GSM, buffer, cmd_count);
 
-	//UARTSend(PORT_TRACE, buffer, cmd_count);
 	int server_conn_count = 0;
 	int server_conn_result = FAIL;
 
@@ -219,13 +113,12 @@ int GSM_ConnectToTrioUpgradeServer( void )
 		int recLen = ReadUart(response, PORT_GSM);
 		if( recLen )
 		{
-//			TraceDumpHex( response, strlen(response) );
-			if (strstr(response,"FAIL") != NULL/* || strstr(response,"ERROR") != NULL*/){ //ERROR is about format ignore
-				//UARTSend(PORT_GSM, buffer, cmd_count); //Testing AT to server problem
+			if( strstr(response,"FAIL") != NULL )
+			{ //ERROR is about format ignore
 				break;
 			}
-			else if (strstr(response,"CONNECT OK") != NULL || strstr(response,"ALREADY CONNECT") != NULL){
-				//UARTSend( PORT_TRACE, response, cmd_count );
+			else if( strstr(response,"CONNECT OK") != NULL || strstr(response,"ALREADY CONNECT") != NULL )
+			{
 				TraceDumpHex( response, recLen );
 				server_conn_result = SUCCESS;
 				break;
@@ -356,15 +249,20 @@ int GSM_ConnectToTrio() {
 **
 **                  a value less than 0 is error code, tobe defined later.
 ******************************************************************************/
-int GSM_SendToServerTCP(char* msg) {
-	TraceNL("Entered GSM_SendToServerTCP");
+int GSM_SendToServerTCP(char* msg)
+{
 	char response[500];
 	char buffer[500];
+
+	TraceNL("Entered GSM_SendToServerTCP");
+
 	GSM_SendAt("AT", response, 100); //Empty buffer
-	int count = sprintf(buffer, "AT+QISEND=%d", strlen(msg));
+
+	sprintf(buffer, "AT+QISEND=%d", strlen(msg));
 	GSM_SendAt(buffer, response, 100);
-	//GSM_SendAt("AT+QISEND", response, 100);
-	if (strchr(response, '>') != NULL) {
+
+	if (strchr(response, '>') != NULL)
+	{
 		UARTSend(PORT_GSM, msg, strlen(msg));
 		DelayMs(300);
 		ReadUart(response, PORT_GSM);
@@ -401,7 +299,7 @@ int GSM_SendToServerTCP(char* msg) {
 **
 **                  a value less than 0 is error code, tobe defined later.
 ******************************************************************************/
-int GSM_TCP_Send( unsigned char* msg, uint16_t len )
+int GSM_TCP_Send( char* msg, uint16_t len )
 {
 	char response[200];
 	char buffer[100];
@@ -410,7 +308,7 @@ int GSM_TCP_Send( unsigned char* msg, uint16_t len )
 
 	GSM_SendAt( "AT", response, 100 ); //Empty buffer
 
-	int count = sprintf( buffer, "AT+QISEND=%d", len );
+	sprintf( buffer, "AT+QISEND=%d", len );
 	GSM_SendAt( buffer, response, 100 );
 
 	if( strchr(response, '>') != NULL )
@@ -511,18 +409,11 @@ int GSM_InitModule() {
 	return FAIL;
 }
 
-int GSM_GetSignalStrength() {
-	char csq_str[20];
-	char response[100];
-	GSM_SendAt("AT", response, 100);
-	GSM_SendAt("AT+CSQ", response, 100);
-	UTIL_GetPartOfString(response, csq_str, ':', ',', 0, 0);
-	return atoi(csq_str);
-}
+
 
 
 int GSM_GetRegStat(){
-	char csq_str[20];
+
 	char response[100];
 	GSM_SendAt("AT+CREG?", response, 100);
 	if (strstr(response, "+CREG") != NULL && ((strstr(response, ",5") != NULL) || (strstr(response, ",1") != NULL))) {
@@ -552,17 +443,6 @@ void GSM_GetCellInfo(char *cell_str) {
 	}
 	cell_str[index] = '\0';
 }
-
-int GSM_IsRoaming() {
-	char csq_str[20];
-	char response[100];
-	GSM_SendAt("AT+CREG?", response, 100);
-	if (strstr(response, "+CREG") != NULL && strstr(response, ",5,") != NULL) {
-		return SUCCESS;
-	}
-	return FAIL;
-}
-
 
 
 int GSM_CheckSimCard() {

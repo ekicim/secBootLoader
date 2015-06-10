@@ -482,8 +482,8 @@ void UART2_Init(int baudrate)
  ** Returned value:		None
  **
  *****************************************************************************/
-void UARTSend(uint32_t portNum, uint8_t *buffer, uint32_t Length) {
-	uint8_t *BufferPtr = buffer;
+void UARTSend(uint32_t portNum, char *buffer, uint32_t Length) {
+	char *BufferPtr = buffer;
 	int index = 0;
 	if (portNum == 0) {
 		while (Length != 0) {
@@ -529,9 +529,9 @@ void UARTSend(uint32_t portNum, uint8_t *buffer, uint32_t Length) {
 	return;
 }
 
-uint16_t ReadUart( uint8_t *veri, uint8_t PortNum )
+uint16_t ReadUart( char* veri, uint8_t PortNum )
 {
-	uint8_t *veri_ptr = veri;
+	char* veri_ptr = veri;
 	uint16_t buff_count = 0;
 	if (PortNum == 0) {
 		if (UART0Count > 0) {

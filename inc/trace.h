@@ -35,6 +35,9 @@ extern void TraceNL( char* msg );
 ******************************************************************************/
 extern void TracePutc( char c );
 
+
+extern void TracePutcHex( char c );
+
 /*****************************************************************************
 ** Function name:	TraceDumpHex
 ** Description:		Prints hex dump of a message

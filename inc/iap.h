@@ -55,6 +55,24 @@ uint32_t u32IAP_BlankCheckSectors(uint32_t u32StartSector, uint32_t u32EndSector
 uint32_t u32IAP_Compare(uint32_t u32DstAddr, uint32_t u32SrcAddr, uint32_t u32Len, uint32_t *pu32Offset);
 void u32IAP_ReadSerialNumber(uint32_t *pu32byte0, uint32_t *pu32byte1, uint32_t *pu32byte2, uint32_t *pu32byte3);
 
+/*****************************************************************************
+** Function name:	WriteImageSignature
+**
+** Description:		The function writes the image signature of and upgrade
+** 					image to the end of the image. Image validation procedure
+** 					checks the image validity using this information if the
+** 					CRC does not match. Upgrade is cancelled and primary image
+** 					is executed.
+**
+** Parameters:		address   address to write size and CRC
+** 					size      size in bytes of the image4
+** 					crc       16 bit CRC of the image
+**
+** Returned value:	none
+**
+******************************************************************************/
+void WriteImageSignature( uint32_t  size, uint32_t crc );
+
 #endif /* end __IAP_H */
 /*****************************************************************************
 **                            End Of File

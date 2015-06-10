@@ -23,6 +23,8 @@
  *****************************************************************************/
 #include "iap.h"
 #include "iap_config.h"
+#include "trace.h"
+#include <stdio.h>
 #include <LPC17xx.h>
 
 /* IAP Command Definitions */
@@ -340,6 +342,68 @@ void vIAP_ReinvokeISP(void)
 	au32Command[0] = IAP_CMD_REINVOKE_ISP;
 
 	IAP_EXECUTE_CMD(au32Command, au32Result);
+}
+
+
+/*****************************************************************************
+** Function name:	WriteImageSignature
+**
+** Description:		The function writes the image signature of and upgrade
+** 					image to the end of the image. Image validation procedure
+** 					checks the image validity using this information if the
+** 					CRC does not match. Upgrade is cancelled and primary image
+** 					is executed.
+**
+** Parameters:		address   address to write size and CRC
+** 					size      size in bytes of the image4
+** 					crc       16 bit CRC of the image
+**
+** Returned value:	none
+**
+******************************************************************************/
+void WriteImageSignature( uint32_t  size, uint32_t crc )
+{
+
+	char buffer[1024];
+	uint32_t rc;
+	int i;
+
+	char* startAddr = (char *)(SECONDARY_IMAGE_END_ADDR - 1024);
+
+	sprintf(buffer, "Writing signature: 0x%X   CRC : %X\r\n", size, crc);
+	Trace( buffer );
+
+	for( i = 0; i < 1024; i++ )
+	{
+		buffer[i++] = *startAddr++;
+	}
+
+	uint32_t* ptrCRC  = (uint32_t*)&buffer[ 1024 - 4 ];
+	*ptrCRC		= crc;
+
+	uint32_t* ptrSize = (uint32_t*)&buffer[ 1024 - 8 ];
+	*ptrSize	= size;
+
+	if (u32IAP_PrepareSectors(SECONDARY_IMAGE_END_SEC,
+			SECONDARY_IMAGE_END_SEC) == IAP_STA_CMD_SUCCESS)
+	{
+		TraceNL("prepared ");
+		u32IAP_EraseSectors( SECONDARY_IMAGE_END_SEC, SECONDARY_IMAGE_END_SEC );
+		TraceNL("Erased ");
+
+		u32IAP_PrepareSectors(SECONDARY_IMAGE_END_SEC,	SECONDARY_IMAGE_END_SEC);
+
+		rc = u32IAP_CopyRAMToFlash((SECONDARY_IMAGE_END_ADDR - 1024), (uint32_t) buffer, 1024);
+
+		sprintf(buffer, "Copy Ram result code : %d\r\n", rc);
+		TraceNL(buffer);
+		/*	Copy data (already) located in RAM to flash */
+		if (rc == IAP_STA_CMD_SUCCESS) {
+			TraceNL("copied ");
+		}
+	}
+
+	return;
 }
 
 /*****************************************************************************

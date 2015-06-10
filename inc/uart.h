@@ -20,6 +20,7 @@
  * warranty that such application will be suitable for the specified
  * use without further testing or modification.
  **********************************************************************/
+#include <bsp.h>
 #include "type.h"
 /*****************************************************************************
  *   History
@@ -48,7 +49,7 @@
 #define LSR_THRE	0x20
 #define LSR_TEMT	0x40
 #define LSR_RXFE	0x80
-#define BUFSIZE		0xFF		   // 128 byte  Max. 256
+
 
 #define GSM_UART_BUFFER_SIZE		1100
 
@@ -59,10 +60,10 @@ void UART2_Init(int baudrate);
 void UART0_IRQHandler( void );
 void UART1_IRQHandler( void );
 void UART3_IRQHandler( void );
-void UARTSend( uint32_t portNum, uint8_t *BufferPtr, uint32_t Length );
-uint8_t Usart_Oku(uint8_t *veri, uint8_t PortNum);
-uint8_t ReadGPSByPolling(uint8_t *veri, int timeout);
-uint16_t ReadUart(uint8_t *veri, uint8_t PortNum);
+
+void UARTSend( uint32_t portNum, char *BufferPtr, uint32_t Length );
+
+uint16_t ReadUart( char *veri, uint8_t PortNum );
 
 #endif /* end __UART_H */
 /*****************************************************************************
