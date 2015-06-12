@@ -11,7 +11,9 @@
 #define GSM_H_
 char imei[20];
 char imsi[20];
-char lbs_str[30];
+
+
+
 uint16_t GSM_SendAt( char* cmd, char *response, int delay );
 void GSM_CheckBuffer();
 void GSM_ReadSMS();

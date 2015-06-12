@@ -255,16 +255,7 @@ int main(void)
 	sprintf(buffer, "SystemCoreClock = %d Hz\r\n", SystemCoreClock);
 	Trace(buffer);
 
-//	if( EEPROM_Init() == 0 )
-//	{
-//		TraceNL("EEPROM Initialization failed.");
-//	} else {
-//		TraceNL("EEPROM Initialized.");
-//	}
-
 	WDTFeed();
-//	LoadParams();
-
 	TraceNL( "Checking upgrade request" );
 
 	if( IsUpgradeRequested() )
@@ -323,6 +314,7 @@ uint32_t	IsUpgradeRequested( void )
 {
 	if( (*( (uint32_t *)UPGRADE_PARAMETERS_ADDR) ) != 0xFFFFFFFF )
 	{
+		/* TODO : IP and port may be checked for validity */
 		char buffer[100];
 		char * port ;
 		strcpy( update_service_ip, (char*)UPGRADE_PARAMETERS_ADDR );
@@ -334,6 +326,9 @@ uint32_t	IsUpgradeRequested( void )
 		sprintf(buffer,"Update parameters %s:%s", update_service_ip, update_service_port);
 		TraceNL( buffer );
 
+		/* We are erasing the ip and port information in case of any failure
+		 * during upgrade procedure to prevent us retrying update unnecesarily
+		 */
 		u32IAP_PrepareSectors( UPGRADE_PARAMETERS_SEC, UPGRADE_PARAMETERS_SEC );
 		u32IAP_EraseSectors( UPGRADE_PARAMETERS_SEC, UPGRADE_PARAMETERS_SEC );
 		return TRUE;
@@ -466,19 +461,29 @@ static int32_t IsSecondaryImageValid( void )
 {
 	char buffer[100];
 
+
 	uint32_t size = *(uint32_t *)(SECONDARY_IMAGE_END_ADDR - 8);
 
-	uint16_t crc  = *(uint16_t *)(SECONDARY_IMAGE_END_ADDR - 4);
+	uint32_t crc  = *(uint32_t *)(SECONDARY_IMAGE_END_ADDR - 4);
+
+	uint32_t constant = *(uint32_t *)(SECONDARY_IMAGE_END_ADDR - 12);
+
+	// the constant at address (SECONDARY_IMAGE_END_ADDR - 12)
+	// has to be same as IMAGE_CONSTANT
+	if( constant != IMAGE_CONSTANT )
+		return (1);
 
 	sprintf(buffer, "Signature: 0x%X   CRC : %X\r\n", size, crc);
 	Trace( buffer );
 
-	uint16_t calculatedCRC = u16CRC_Calc16( (uint8_t*)SECONDARY_IMAGE_LOAD_ADDR, size );
+	crcInit( );
 
-	sprintf( buffer, "Calculated Image CRC: 0x%X\r\n", calculatedCRC );
+	uint32_t calculatedCRC32 = crcFast( (uint8_t*)SECONDARY_IMAGE_LOAD_ADDR, size );
+
+	sprintf( buffer, "Calculated Image CRC32: 0x%X\r\n", calculatedCRC32 );
 	Trace( buffer );
 
-	if( crc == calculatedCRC )
+	if( crc == calculatedCRC32 )
 		return ( 0 );  // image is valid
 
 	return ( 1 );  //image is not valid

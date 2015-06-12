@@ -20,4 +20,6 @@
 
 #define BUFSIZE		(256)
 
+#define	CHIP_LPC175X_6X      (1)
+
 #endif /* BSP_H_ */

@@ -22,6 +22,9 @@
 // amount
 #define FLASH_SECTOR_SIZE			1024
 
+// bootrom check this constant to decide validity of image
+#define IMAGE_CONSTANT 				0xAA55BC47
+
 /* version information is placed at offset */
 #define IMAGE_VERSION_OFFSET		0x000002f8
 #define PRIMARY_IMAGE_LOAD_ADDR		SECTOR_16_START

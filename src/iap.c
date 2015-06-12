@@ -384,6 +384,9 @@ void WriteImageSignature( uint32_t  size, uint32_t crc )
 	uint32_t* ptrSize = (uint32_t*)&buffer[ 1024 - 8 ];
 	*ptrSize	= size;
 
+	uint32_t* ptrConst = (uint32_t*)&buffer[ 1024 - 12 ];
+	*ptrConst	= IMAGE_CONSTANT;
+
 	if (u32IAP_PrepareSectors(SECONDARY_IMAGE_END_SEC,
 			SECONDARY_IMAGE_END_SEC) == IAP_STA_CMD_SUCCESS)
 	{

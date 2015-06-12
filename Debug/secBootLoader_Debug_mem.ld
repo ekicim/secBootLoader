@@ -4,21 +4,21 @@
  * (c) NXP Semiconductors 2013-2015
  * Linker script memory definitions
  * Created from LinkMemoryTemplate
- * By LPCXpresso v7.7.2 [Build 379] [2015-03-31]  on Wed Jun 10 17:36:59 EEST 2015)
+ * By LPCXpresso v7.7.2 [Build 379] [2015-03-31]  on Fri Jun 12 11:40:24 EEST 2015)
 */
 
 MEMORY
 {
   /* Define each memory region */
   MFlash512 (rx) : ORIGIN = 0x0, LENGTH = 0x10000 /* 64K bytes */
-  RamLoc32 (rwx) : ORIGIN = 0x10000000, LENGTH = 0x8000 /* 32K bytes */
+  RamLoc32 (rwx) : ORIGIN = 0x10000000, LENGTH = 0x7fc0 /* 32704 bytes */
   RamAHB32 (rwx) : ORIGIN = 0x2007c000, LENGTH = 0x8000 /* 32K bytes */
 
 
 }
   /* Define a symbol for the top of each memory region */
   __top_MFlash512 = 0x0 + 0x10000;
-  __top_RamLoc32 = 0x10000000 + 0x8000;
+  __top_RamLoc32 = 0x10000000 + 0x7fc0;
   __top_RamAHB32 = 0x2007c000 + 0x8000;
 
 

@@ -41,7 +41,7 @@ clean:
 
 post-build:
 	-@echo 'Performing post-build steps'
-	-arm-none-eabi-size secBootLoader.axf ; arm-none-eabi-objdump -S secBootLoader.axf >secBootLoader.lss ; arm-none-eabi-objcopy -O ihex secBootLoader.axf secBootLoader.hex
+	-arm-none-eabi-size secBootLoader.axf ; arm-none-eabi-objdump -S secBootLoader.axf >secBootLoader.lss ; arm-none-eabi-objcopy -O ihex secBootLoader.axf secBootLoader.hex ; arm-none-eabi-objcopy -O binary secBootLoader.axf secBootLoader.bin
 	-@echo ' '
 
 .PHONY: all clean dependents

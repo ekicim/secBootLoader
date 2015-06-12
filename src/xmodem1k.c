@@ -83,66 +83,6 @@ static char receiveBuf[RECEIVE_BUFF_LEN];
 static uint16_t dataLen = 0;		// number of bytes in the buffer
 static uint16_t dataIndex = 0;  // current byte to be processed
 
-/*
- * Helper function reads a block of data from GSM TCP connection
- * and services it byte by byte
- *
- * parsing a message like the following
- * 41 54 2b 51 49 52 44 3d 31 2c 31 2c 30 2c 31 30  AT+QIRD=1,1,0,10
- * 35 30 0d 0d 0a 2b 51 49 52 44 3a 20 34 36 2e 34  50...+QIRD: 46.4
- * 2e 31 30 30 2e 31 36 38 3a 35 30 30 37 2c 54 43  .100.168:5007,TC
- * 50 2c 31 0d 0a 32 0d 0a 4f 4b 0d 0a 0d 0a 2b 51  P,1..2..OK....+Q
- * 49 52 44 49 3a 20 31 2c 31 2c 30 0d 0a           IRDI: 1,1,0.
- */
-//uint8_t XModemReadByte(char* pByte) {
-//	char* pdata;
-//	char* pnewline;
-//	char asciiLen[10];
-//	unsigned int len, i;
-//
-//	if (dataIndex >= dataLen) {
-//		// all buffer consumed read more from TCP connection
-//		dataLen = GSM_TCP_Recv( receiveBuf, 1500 );
-//		receiveBuf[dataLen + 1] = '\0';
-//
-//		// find the length of the message between
-//		// ",TCP," and "\r\n"
-//		pdata = strstr( receiveBuf, ",TCP," );
-//		if (pnewline == NULL) {
-//			return (0);
-//		}
-//
-//		pnewline = strstr( pdata, "\r\n" );
-//		if (pnewline == NULL) {
-//			return (0);
-//		}
-//
-//		strncpy( asciiLen, pdata + 5, pnewline - pdata );
-//
-//		asciiLen[pnewline - pdata] = '\0';
-//
-//		len = atoi(asciiLen);
-//
-//		int count = sprintf(asciiLen, "%d", len );
-//		asciiLen[count] = '\0';
-//		TraceDumpHex(asciiLen, strlen(asciiLen));
-//
-//		for (i = 0; i < len; i++) {
-//			receiveBuf[i] = *(pnewline + 2 + i);
-//		}
-//		dataLen   = len;
-//		dataIndex = 0;
-//		if( dataLen <= 0 ) {
-//			dataLen = 0;
-//			return (0);  // no data available
-//		}
-//	}
-//
-//	(*pByte) = receiveBuf[dataIndex++];
-//	return (1);
-//}
-
-
 uint8_t XModemReadByte( char* pByte )
 {
 	char* pdata;
@@ -186,15 +126,6 @@ uint8_t XModemReadByte( char* pByte )
 		asciiLen[pnewline - pdata] = '\0';
 
 		len = atoi(asciiLen);
-
-//		if( len - (dataLen + 47)  != 0 )
-//		{
-//			dataLen = GSM_TCP_Recv( receiveBuf + dataLen , 1000 );
-//		}
-
-//		int count = sprintf(asciiLen, "%d", len );
-//		asciiLen[count] = '\0';
-//		TraceDumpHex(asciiLen, strlen(asciiLen));
 
 		for (i = 0; i < len; i++) {
 			receiveBuf[i] = *(pnewline + dataoffset + i);
@@ -327,7 +258,7 @@ int XModem1K_Client(
 						pu32Xmodem1kRxPacketCallback( (uint8_t *)SECONDARY_IMAGE_LOAD_ADDR, 0);
 
 						uint32_t imageSize;
-						uint16_t imageCRC;
+						uint32_t imageCRC;
 
 						XModemReadByte( &u8Data );
 						imageSize = u8Data << 24 & 0xFF000000;
@@ -341,25 +272,23 @@ int XModem1K_Client(
 						XModemReadByte( &u8Data );
 						imageSize |= u8Data << 0 & 0x000000FF;
 
+						// CRC
+						XModemReadByte( &u8Data );
+						imageCRC = u8Data << 24 & 0xFF000000;
 
 						XModemReadByte( &u8Data );
-						imageCRC = u8Data << 8 & 0xFF00;
+						imageCRC |= u8Data << 16 & 0x00FF0000;
 
 						XModemReadByte( &u8Data );
-						imageCRC |= u8Data << 0 & 0x00FF;
+						imageCRC |= u8Data << 8 & 0x0000FF00;
+
+						XModemReadByte( &u8Data );
+						imageCRC |= u8Data << 0 & 0x000000FF;
 
 						sprintf( buffer, "file size: 0x%X, CRC: 0x%X\r\n", imageSize, imageCRC );
 						Trace( buffer );
 
-						calculatedCRC = u16CRC_Calc16( (uint8_t*)SECONDARY_IMAGE_LOAD_ADDR, imageSize );
-
-						sprintf( buffer, "Calculated Image CRC: 0x%X\r\n", calculatedCRC );
-						Trace( buffer );
-
-						WriteImageSignature( imageSize, (0xFFFF0000 | (0x0000FFFF & (uint32_t)imageCRC)) );
-
-					    // We should have completed the image reception now dump it to see if any problem.
-						// TraceDumpHex( SECONDARY_IMAGE_LOAD_ADDR, 20000 );
+						WriteImageSignature( imageSize, imageCRC );
 
 						return ( 0 );
 
